@@ -1,0 +1,50 @@
+{
+    "test_datalist": "$monai.data.load_decathlon_datalist(@data_list_file_path, is_segmentation=True, data_list_key='validation', base_dir=@dataset_dir)",
+    "validate#dataset": {
+        "_target_": "Dataset",
+        "data": "$@test_datalist",
+        "transform": "@validate#preprocessing"
+    },
+    "validate#key_metric": {
+        "val_coco": {
+            "_target_": "scripts.cocometric_ignite.IgniteCocoMetric",
+            "coco_metric_monai": "$monai.apps.detection.metrics.coco.COCOMetric(classes=['nodule'], iou_list=[0.1], max_detection=[100])",
+            "output_transform": "$monai.handlers.from_engine(['pred', 'label'])",
+            "box_key": "box",
+            "label_key": "label",
+            "pred_score_key": "label_scores",
+            "reduce_scalar": false
+        }
+    },
+    "validate#handlers": [
+        {
+            "_target_": "CheckpointLoader",
+            "load_path": "$@ckpt_dir + '/model.pt'",
+            "load_dict": {
+                "model": "@network"
+            }
+        },
+        {
+            "_target_": "StatsHandler",
+            "iteration_log": false
+        },
+        {
+            "_target_": "MetricsSaver",
+            "save_dir": "@output_dir",
+            "metrics": [
+                "val_coco"
+            ],
+            "metric_details": [
+                "val_coco"
+            ],
+            "batch_transform": "$lambda x: [xx['image'].meta for xx in x]",
+            "summary_ops": "*"
+        }
+    ],
+    "initialize": [
+        "$setattr(torch.backends.cudnn, 'benchmark', True)"
+    ],
+    "run": [
+        "$@validate#evaluator.run()"
+    ]
+}
