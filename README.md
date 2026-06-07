@@ -17,7 +17,7 @@ MedicalAIAgent/
 ├── martin/                    # 核心包
 │   ├── __init__.py           # 包初始化
 │   ├── __main__.py           # 命令行入口
-│   ├── minai/                # 医学影像模块
+│   ├── monai/                # 医学影像模块
 │   │   ├── __init__.py
 │   │   ├── nodule_detector.py    # 结节检测
 │   │   └── image_processor.py    # 图像处理
@@ -85,7 +85,7 @@ python -m martin info -i data/ct_scan.nii.gz
 ### API使用
 
 ```python
-from martin.minai import NoduleDetector
+from martin.monai import NoduleDetector
 from martin.llm import DeepSeekClient
 
 # 检测结节
@@ -102,7 +102,7 @@ report = client.generate_report(nodules)
 
 ## 📦 核心模块
 
-### minai - 医学影像模块
+### monai - 医学影像模块
 
 | 模块 | 功能 |
 |:-----|:-----|

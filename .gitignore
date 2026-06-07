@@ -35,6 +35,7 @@ miniconda/
 *.log
 *.out
 logs/
+log/
 
 # 排除Trae相关文件
 .trae/

@@ -71,7 +71,7 @@ def main():
 
 def run_detect(args):
     """执行结节检测"""
-    from martin.minai import NoduleDetector
+    from martin.monai import NoduleDetector
     
     print(f"正在检测: {args.input}")
     
@@ -121,7 +121,7 @@ def run_report(args):
 
 def run_convert(args):
     """转换图像格式"""
-    from martin.minai import ImageProcessor
+    from martin.monai import ImageProcessor
     
     if args.input.endswith('.mhd') and (args.output.endswith('.nii.gz') or args.output.endswith('.nii')):
         ImageProcessor.metaimage_to_nifti(args.input, args.output)
@@ -131,7 +131,7 @@ def run_convert(args):
 
 def run_info(args):
     """查看图像信息"""
-    from martin.minai import ImageProcessor
+    from martin.monai import ImageProcessor
     
     info = ImageProcessor.get_image_info(args.input)
     
