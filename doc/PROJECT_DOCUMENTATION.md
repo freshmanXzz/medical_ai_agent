@@ -595,6 +595,7 @@ manager = get_result_manager()
 | `test_llm.py` | LLM 客户端 | API 调用、各种接口 |
 | `test_result_manager.py` | 结果管理器 | 日期目录、自动分类 |
 | `test_full_pipeline.py` | 完整流程 | 从推理到报告生成 |
+| `test_one_click.py` | 一键测试 | 完整流程一键测试脚本（推荐） |
 
 ### 运行测试
 

@@ -66,6 +66,25 @@ model/lung_nodule_ct_detection-0.6.8/
         └── model.pt
 ```
 
+### 一键测试
+
+运行完整流程测试脚本：
+
+```bash
+# 基础测试（无需API密钥）
+python tests/test_one_click.py
+
+# 完整测试（包含LLM，需要API密钥）
+set DEEPSEEK_API_KEY=sk-xxx
+python tests/test_one_click.py
+```
+
+测试内容：
+1. CT图像检测推理
+2. 病例报告生成（模板）
+3. 病例报告生成（LLM，需要API密钥）
+4. 结果管理器验证
+
 ## 命令行使用
 
 ```bash
