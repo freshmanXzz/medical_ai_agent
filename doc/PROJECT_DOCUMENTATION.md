@@ -23,10 +23,12 @@
 6. [工具模块](#6-工具模块)
    - 6.1 [martin/util/__init__.py](#61-martinutil__init__py)
    - 6.2 [martin/util/logger.py - 日志工具](#62-martinutilloggerpy)
+   - 6.3 [martin/util/result_manager.py - 结果管理器](#63-martinutilresult_managerpy)
 7. [测试模块](#7-测试模块)
 8. [命令行使用指南](#8-命令行使用指南)
 9. [API 使用示例](#9-api-使用示例)
 10. [环境配置](#10-环境配置)
+11. [结果文件管理](#11-结果文件管理)
 
 ---
 
@@ -72,7 +74,8 @@ medical_ai_agent/
 │   │
 │   └── util/                  # 通用工具子模块
 │       ├── __init__.py        # 子模块初始化
-│       └── logger.py          # 统一日志工具类
+│       ├── logger.py          # 统一日志工具类
+│       └── result_manager.py   # 结果文件管理器
 │
 ├── tests/                     # 单元测试
 │   ├── test_monai.py          # MONAI 模块测试
@@ -80,6 +83,7 @@ medical_ai_agent/
 │   ├── test_inference_direct.py # 直接推理测试
 │   ├── test_logger.py         # 日志工具测试
 │   ├── test_case_generator.py # 病例生成器测试
+│   ├── test_result_manager.py # 结果管理器测试
 │   ├── test_llm.py            # LLM 客户端测试
 │   └── test_full_pipeline.py  # 完整流程测试
 │
@@ -522,6 +526,59 @@ logger.error("错误")
 - 默认路径：项目根目录 `/log/YYYY-MM-DD.log`
 - 自动创建，无需手动配置
 
+### 6.3 [martin/util/result_manager.py](file:///E:/moani/medical_ai_agent/martin/util/result_manager.py)
+
+**作用**：结果文件管理器，提供按日期分类的结果文件管理功能
+
+#### 类：ResultManager
+
+**特性**：
+- **按日期分类**：结果文件自动保存到 `results/YYYY-MM-DD/` 目录
+- **自动创建目录**：无需手动创建日期目录
+- **时间戳文件名**：避免同一天内的文件覆盖
+- **统一管理**：检测结果和报告文件统一管理
+
+**方法**：
+
+| 方法 | 说明 | 参数 | 返回值 |
+|:-----|:-----|:-----|:-------|
+| `get_today_dir()` | 获取今天的目录 | - | 目录路径 |
+| `get_date_dir()` | 获取指定日期的目录 | date_str | 目录路径 |
+| `generate_filename()` | 生成带时间戳的文件名 | prefix, extension | 文件名 |
+| `save_detection_result()` | 保存检测结果 | result, filename | 文件路径 |
+| `save_report()` | 保存报告 | report, filename | 文件路径 |
+| `list_results()` | 列出指定日期的结果 | date_str | 文件列表 |
+| `load_detection_result()` | 加载检测结果 | filepath | 结果字典 |
+
+**使用示例**：
+
+```python
+from martin.util import ResultManager
+
+manager = ResultManager()
+
+# 获取今天的目录
+today_dir = manager.get_today_dir()
+# 结果：E:/project/results/2026-06-09
+
+# 保存检测结果（自动按日期分类）
+manager.save_detection_result(result)
+
+# 保存报告（自动按日期分类）
+manager.save_report("# 报告内容")
+
+# 列出今天的结果
+files = manager.list_results()
+```
+
+**便捷函数**：
+
+```python
+from martin.util import get_result_manager
+
+manager = get_result_manager()
+```
+
 ---
 
 ## 7. 测试模块
@@ -536,6 +593,7 @@ logger.error("错误")
 | `test_logger.py` | 日志工具 | 日志初始化、输出、单例模式 |
 | `test_case_generator.py` | 病例生成 | 模板生成、LLM 生成 |
 | `test_llm.py` | LLM 客户端 | API 调用、各种接口 |
+| `test_result_manager.py` | 结果管理器 | 日期目录、自动分类 |
 | `test_full_pipeline.py` | 完整流程 | 从推理到报告生成 |
 
 ### 运行测试
@@ -726,6 +784,72 @@ model/lung_nodule_ct_detection-0.6.8/
 
 ```python
 detector = LungNoduleDetector(model_path="/path/to/model.pt")
+```
+
+---
+
+## 11. 结果文件管理
+
+### 目录结构
+
+所有结果文件按日期自动分类存储在 `results/` 目录下：
+
+```
+results/
+├── 2026-06-09/
+│   ├── detection_1.3.6.1.4.1.nii_133607.json   # 检测结果
+│   └── case_report_133607.md                   # 病例报告
+├── 2026-06-10/
+│   ├── detection_image1_134520.json
+│   └── case_report_134520.md
+└── 2026-06-11/
+    └── ...
+```
+
+### 文件命名规则
+
+| 类型 | 命名格式 | 示例 |
+|:-----|:---------|:-----|
+| 检测结果 | `detection_{图像名}_{时间戳}.json` | `detection_test_133607.json` |
+| 病例报告 | `case_report_{时间戳}.md` | `case_report_133607.md` |
+
+### API 使用
+
+```python
+from martin.inference import LungNoduleDetector
+from martin.llm import CaseGenerator
+
+# 检测并自动保存到日期目录
+detector = LungNoduleDetector()
+result = detector.detect("image.nii.gz")
+detector.save_result(result)
+# 保存到: results/2026-06-09/detection_image_时间戳.json
+
+# 生成报告并自动保存到日期目录
+generator = CaseGenerator()
+report = generator.generate_case(result, "detailed")
+generator.save_report(report)
+# 保存到: results/2026-06-09/case_report_时间戳.md
+
+# 便捷函数：一步完成
+report, path = CaseGenerator.generate_and_save(result)
+```
+
+### 查看历史结果
+
+```python
+from martin.util import ResultManager
+
+manager = ResultManager()
+
+# 列出今天的结果
+files = manager.list_results()
+
+# 列出指定日期的结果
+files = manager.list_results("2026-06-08")
+
+# 加载历史检测结果
+result = manager.load_detection_result("results/2026-06-08/detection_xxx.json")
 ```
 
 ---

@@ -4,5 +4,6 @@
 """
 
 from .logger import AppLogger
+from .result_manager import ResultManager, get_result_manager
 
-__all__ = ["AppLogger"]
+__all__ = ["AppLogger", "ResultManager", "get_result_manager"]

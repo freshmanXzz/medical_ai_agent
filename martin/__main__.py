@@ -86,18 +86,22 @@ def main():
 
 def run_detect(args):
     """执行结节检测"""
-    from martin.monai import NoduleDetector
+    from martin.inference import LungNoduleDetector
+    import json
+    import os
     
     print(f"正在检测: {args.input}")
     
-    detector = NoduleDetector(device=args.device)
-    nodules = detector.detect(args.input)
+    detector = LungNoduleDetector()
+    result = detector.detect(args.input)
     
-    detector.save_results(nodules, args.output)
-    print(f"检测完成！结果已保存到: {args.output}")
-    print(f"检测到 {len(nodules)} 个结节")
+    # 保存结果到按日期分类的目录
+    saved_path = detector.save_result(result, args.output)
     
-    for nodule in nodules:
+    print(f"检测完成！结果已保存到: {saved_path}")
+    print(f"检测到 {result['total_nodules']} 个结节")
+    
+    for nodule in result['nodules']:
         print(f"  结节 {nodule['index']}: 置信度 {nodule['score']:.2%}, "
               f"直径 {nodule['diameter']:.2f}mm")
 
@@ -162,11 +166,10 @@ def run_case(args):
         print(f"生成病例报告，类型: {args.type}，语言: {args.lang}...")
         report = generator.generate_case(detection_result, args.type, args.lang)
     
-    os.makedirs(os.path.dirname(args.output) if os.path.dirname(args.output) else '.', exist_ok=True)
-    with open(args.output, 'w', encoding='utf-8') as f:
-        f.write(report)
+    # 保存报告到按日期分类的目录
+    saved_path = generator.save_report(report, args.output)
     
-    print(f"病例报告已生成并保存到: {args.output}")
+    print(f"病例报告已生成并保存到: {saved_path}")
     print("\n=== 报告预览 ===")
     print(report[:1000] + "..." if len(report) > 1000 else report)
 

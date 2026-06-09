@@ -3,6 +3,7 @@
 提供可重用的推理功能，支持被其他模块调用
 """
 import os
+import json
 import torch
 from typing import List, Dict, Optional
 
@@ -400,6 +401,42 @@ class LungNoduleDetector:
                     "total_nodules": 0
                 })
         return results
+    
+    def save_result(
+        self,
+        result: Dict,
+        filepath: str = None,
+        use_date_dir: bool = True
+    ) -> str:
+        """
+        保存检测结果到文件
+        
+        Args:
+            result: 检测结果字典
+            filepath: 输出文件路径，如果为None则自动生成
+            use_date_dir: 是否使用按日期分类的目录
+        
+        Returns:
+            保存的文件路径
+        """
+        from martin.util import get_result_manager
+        
+        manager = get_result_manager()
+        
+        if filepath:
+            if use_date_dir:
+                date_dir = manager.get_today_dir()
+                filename = os.path.basename(filepath)
+                filepath = os.path.join(date_dir, filename)
+                os.makedirs(os.path.dirname(filepath), exist_ok=True)
+        else:
+            filepath = manager.save_detection_result(result)
+        
+        with open(filepath, "w", encoding="utf-8") as f:
+            json.dump(result, f, indent=4, ensure_ascii=False)
+        
+        logger.info(f"检测结果已保存到: {filepath}")
+        return filepath
 
 
 # 提供简单的函数接口

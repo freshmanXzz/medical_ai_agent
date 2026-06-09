@@ -29,13 +29,15 @@ medical_ai_agent/
 │   │   └── case_generator.py  # 病例报告生成器
 │   │
 │   └── util/                  # 通用工具子模块
-│       └── logger.py          # 统一日志工具类
+│       ├── logger.py          # 统一日志工具类
+│       └── result_manager.py  # 结果文件管理器
 │
 ├── tests/                     # 单元测试
 ├── model/                     # 预训练模型权重
 ├── data/                      # 测试数据
 ├── doc/                       # 项目文档
-├── results/                   # 输出结果（自动生成）
+├── results/                   # 输出结果（按日期分类，自动生成）
+│   └── YYYY-MM-DD/           # 按日期存储
 ├── log/                       # 日志文件（自动生成）
 └── README.md
 ```
@@ -170,6 +172,7 @@ ImageProcessor.metaimage_to_nifti("input.mhd", "output.nii.gz")
 | 类 | 功能 |
 |:---|:-----|
 | `AppLogger` | 统一日志工具（单例模式） |
+| `ResultManager` | 结果文件管理器（按日期分类） |
 
 ## 配置
 

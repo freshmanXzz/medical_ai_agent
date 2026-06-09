@@ -465,3 +465,74 @@ Nodule {nodule['index']}:
 """
         
         return prompt
+    
+    def save_report(
+        self,
+        report: str,
+        filepath: str = None,
+        use_date_dir: bool = True
+    ) -> str:
+        """
+        保存报告到文件
+        
+        Args:
+            report: 报告内容
+            filepath: 输出文件路径，如果为None则自动生成
+            use_date_dir: 是否使用按日期分类的目录
+        
+        Returns:
+            保存的文件路径
+        """
+        import os
+        from martin.util import get_result_manager
+        
+        manager = get_result_manager()
+        
+        if filepath:
+            if use_date_dir:
+                date_dir = manager.get_today_dir()
+                filename = os.path.basename(filepath)
+                filepath = os.path.join(date_dir, filename)
+                os.makedirs(os.path.dirname(filepath), exist_ok=True)
+        else:
+            filepath = manager.save_report(report)
+        
+        with open(filepath, "w", encoding="utf-8") as f:
+            f.write(report)
+        
+        logger.info(f"报告已保存到: {filepath}")
+        return filepath
+    
+    @staticmethod
+    def generate_and_save(
+        detection_result: Dict,
+        report_type: str = "detailed",
+        language: str = "zh",
+        use_llm: bool = False,
+        api_key: str = None,
+        output_path: str = None
+    ) -> tuple:
+        """
+        便捷函数：生成并保存报告
+        
+        Args:
+            detection_result: 检测结果字典
+            report_type: 报告类型
+            language: 语言
+            use_llm: 是否使用LLM生成
+            api_key: API密钥
+            output_path: 输出路径
+        
+        Returns:
+            (报告内容, 保存路径) 元组
+        """
+        generator = CaseGenerator(api_key=api_key)
+        
+        if use_llm:
+            report = generator.generate_with_llm(detection_result, report_type)
+        else:
+            report = generator.generate_case(detection_result, report_type, language)
+        
+        saved_path = generator.save_report(report, output_path)
+        
+        return report, saved_path
