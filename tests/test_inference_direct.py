@@ -19,7 +19,8 @@ def main():
     # 测试文件
     test_file = os.path.join(
         os.path.dirname(os.path.dirname(__file__)),
-        "data", "1.3.6.1.4.1.14519.5.2.1.6279.6001.395623571499047043765181005112.nii.gz"
+        "data",
+        "1.3.6.1.4.1.14519.5.2.1.6279.6001.395623571499047043765181005112.nii.gz"
     )
     
     if not os.path.exists(test_file):

@@ -20,8 +20,11 @@ print("=" * 60)
 
 model_path = os.path.join(
     os.path.dirname(os.path.dirname(__file__)),
-    "model", "lung_nodule_ct_detection-0.6.8", 
-    "lung_nodule_ct_detection-0.6.8", "models", "model.pt"
+    "model",
+    "lung_nodule_ct_detection-0.6.8",
+    "lung_nodule_ct_detection-0.6.8",
+    "models",
+    "model.pt"
 )
 
 print(f"模型路径: {model_path}")

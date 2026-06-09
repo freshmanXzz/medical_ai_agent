@@ -3,44 +3,18 @@
 提供可重用的推理功能，支持被其他模块调用
 """
 import os
-import sys
-import logging
 import torch
-from datetime import datetime
-from typing import List, Dict, Optional, Union
+from typing import List, Dict, Optional
 
-# 设置日志
-logger = logging.getLogger(__name__)
-logger.setLevel(logging.INFO)
+# 导入统一日志工具
+from martin.util import AppLogger
 
-# 清除已有的处理器
-logger.handlers.clear()
-
-# 设置日志格式
-formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
-
-# 添加控制台输出
-console_handler = logging.StreamHandler()
-console_handler.setFormatter(formatter)
-logger.addHandler(console_handler)
-
-# 创建日志目录
-log_dir = os.path.join(os.path.dirname(os.path.dirname(__file__)), "log")
-os.makedirs(log_dir, exist_ok=True)
-
-# 按日期生成日志文件名
-log_filename = datetime.now().strftime("%Y-%m-%d") + ".log"
-log_filepath = os.path.join(log_dir, log_filename)
-
-# 添加文件处理器
-file_handler = logging.FileHandler(log_filepath, encoding='utf-8', mode='a')
-file_handler.setFormatter(formatter)
-logger.addHandler(file_handler)
+# 获取日志实例
+logger = AppLogger.setup_logging(__name__)
 
 # 记录模块启动信息
 logger.info("=" * 60)
 logger.info("肺部结节检测推理模块已加载")
-logger.info(f"日志文件: {log_filepath}")
 logger.info("=" * 60)
 
 
@@ -175,17 +149,17 @@ class LungNoduleDetector:
             # 设置检测器参数
             self.detector.set_target_keys(box_key='box', label_key='label')
             self.detector.set_box_selector_parameters(
-                score_thresh=0.05,
-                topk_candidates_per_level=500,
+                score_thresh=0.02,
+                topk_candidates_per_level=1000,
                 nms_thresh=0.22,
-                detections_per_img=100
+                detections_per_img=300
             )
             self.detector.set_sliding_window_inferer(
-                roi_size=[384, 384,128],
-                overlap=0.5,
+                roi_size=[512, 512, 192],
+                overlap=0.25,
                 sw_batch_size=1,
                 mode='constant',
-                device=self.device
+                device='cpu'
             )
             self.detector.eval()
             
@@ -201,8 +175,13 @@ class LungNoduleDetector:
     def _setup_transforms(self):
         """设置预处理和后处理变换"""
         try:
-            from monai.transforms import Compose, LoadImaged, EnsureChannelFirstd, Orientationd, Spacingd, ScaleIntensityRanged, EnsureTyped
-            from monai.apps.detection.transforms.dictionary import ClipBoxToImaged, AffineBoxToWorldCoordinated, ConvertBoxModed
+            from monai.transforms import (
+                Compose, LoadImaged, EnsureChannelFirstd,
+                Orientationd, Spacingd, ScaleIntensityRanged, EnsureTyped
+            )
+            from monai.apps.detection.transforms.dictionary import (
+                ClipBoxToImaged, AffineBoxToWorldCoordinated, ConvertBoxModed
+            )
             
             # 预处理管道
             self.preprocessing = Compose([
@@ -243,6 +222,80 @@ class LungNoduleDetector:
             logger.error(f"导入MONAI变换模块失败: {e}")
             raise
     
+    def _prepare_dataloader(self, image_path: str):
+        """准备数据加载器"""
+        from monai.data import Dataset, DataLoader
+        from monai.data.utils import no_collation
+        
+        data_list = [{"image": image_path}]
+        dataset = Dataset(data=data_list, transform=self.preprocessing)
+        dataloader = DataLoader(
+            dataset=dataset,
+            batch_size=1,
+            shuffle=False,
+            num_workers=0,
+            collate_fn=no_collation
+        )
+        return dataloader
+    
+    def _execute_inference(self, dataloader) -> List:
+        """执行推理和后处理"""
+        import time
+        
+        results = []
+        with torch.no_grad():
+            for batch_idx, batch_data in enumerate(dataloader):
+                logger.info(f"  处理批次 {batch_idx + 1}...")
+                
+                t1 = time.time()
+                inputs = [data["image"].to(self.device) for data in batch_data]
+                logger.info(f"    数据移动到设备: {time.time() - t1:.2f}秒")
+                logger.info(f"    输入形状: {inputs[0].shape}")
+                
+                t1 = time.time()
+                logger.info("    执行模型推理 (这可能需要一些时间)...")
+                outputs = self.detector(inputs, use_inferer=True)
+                logger.info(f"    推理完成: {time.time() - t1:.2f}秒")
+                
+                for i, data in enumerate(batch_data):
+                    result = {**outputs[i], "image": data["image"]}
+                    result = self.postprocessing(result)
+                    results.append(result)
+        
+        return results
+    
+    def _parse_results(self, results: List) -> List[Dict]:
+        """解析检测结果为结节列表"""
+        nodules = []
+        for result in results:
+            boxes = result["box"].cpu().numpy() if isinstance(
+                result["box"], torch.Tensor
+            ) else result["box"]
+            scores = result["label_scores"].cpu().numpy() if isinstance(
+                result["label_scores"], torch.Tensor
+            ) else result["label_scores"]
+            
+            logger.info(f"  检测到 {len(boxes)} 个候选框")
+            
+            for j in range(len(boxes)):
+                nodule = {
+                    "index": j + 1,
+                    "score": float(scores[j]),
+                    "center": {
+                        "x": float(boxes[j][0]),
+                        "y": float(boxes[j][1]),
+                        "z": float(boxes[j][2])
+                    },
+                    "dimensions": {
+                        "width": float(boxes[j][3]),
+                        "height": float(boxes[j][4]),
+                        "depth": float(boxes[j][5])
+                    },
+                    "diameter": float(max(boxes[j][3], boxes[j][4], boxes[j][5]))
+                }
+                nodules.append(nodule)
+        return nodules
+    
     def detect(self, image_path: str) -> Dict:
         """
         检测单张图像中的肺部结节
@@ -258,8 +311,8 @@ class LungNoduleDetector:
                     {
                         "index": 结节索引,
                         "score": 置信度,
-                        "center": {"x": x坐标, "y": y坐标, "z": z坐标},
-                        "dimensions": {"width": 宽度, "height": 高度, "depth": 深度},
+                        "center": {"x": x, "y": y, "z": z},
+                        "dimensions": {"width": w, "height": h, "depth": d},
                         "diameter": 直径
                     }
                 ],
@@ -274,89 +327,26 @@ class LungNoduleDetector:
         logger.info(f"开始检测图像: {image_path}")
         
         try:
-            from monai.data import Dataset, DataLoader
-            from monai.data.utils import no_collation
-            
-            # 准备数据
+            # 步骤 1/4: 准备数据
             logger.info("步骤 1/4: 准备数据...")
-            data_list = [{"image": image_path}]
-            
             t0 = time.time()
-            dataset = Dataset(data=data_list, transform=self.preprocessing)
-            logger.info(f"  数据集创建完成: {time.time() - t0:.2f}秒")
+            dataloader = self._prepare_dataloader(image_path)
+            logger.info(f"  数据准备完成: {time.time() - t0:.2f}秒")
             
-            t0 = time.time()
-            dataloader = DataLoader(
-                dataset=dataset,
-                batch_size=1,
-                shuffle=False,
-                num_workers=0,
-                collate_fn=no_collation
-            )
-            logger.info(f"  数据加载器创建完成: {time.time() - t0:.2f}秒")
-            
-            results = []
-            
-            # 执行推理
+            # 步骤 2/4: 执行推理
             logger.info("步骤 2/4: 执行推理...")
             t0 = time.time()
+            results = self._execute_inference(dataloader)
+            logger.info(f"  推理完成: {time.time() - t0:.2f}秒")
             
-            with torch.no_grad():
-                for batch_idx, batch_data in enumerate(dataloader):
-                    logger.info(f"  处理批次 {batch_idx + 1}...")
-                    
-                    t1 = time.time()
-                    inputs = [data["image"].to(self.device) for data in batch_data]
-                    logger.info(f"    数据移动到设备: {time.time() - t1:.2f}秒")
-                    logger.info(f"    输入形状: {inputs[0].shape}")
-                    
-                    t1 = time.time()
-                    logger.info("    执行模型推理 (这可能需要一些时间)...")
-                    outputs = self.detector(inputs, use_inferer=True)
-                    logger.info(f"    推理完成: {time.time() - t1:.2f}秒")
-                    
-                    # 后处理
-                    logger.info("步骤 3/4: 后处理...")
-                    t1 = time.time()
-                    for i, data in enumerate(batch_data):
-                        result = {**outputs[i], "image": data["image"]}
-                        result = self.postprocessing(result)
-                        results.append(result)
-                    logger.info(f"  后处理完成: {time.time() - t1:.2f}秒")
-            
-            logger.info(f"推理执行完成: {time.time() - t0:.2f}秒")
-            
-            # 解析结果
-            logger.info("步骤 4/4: 解析检测结果...")
+            # 步骤 3/4: 解析结果
+            logger.info("步骤 3/4: 解析检测结果...")
             t0 = time.time()
+            nodules = self._parse_results(results)
+            logger.info(f"  结果解析完成: {time.time() - t0:.2f}秒")
             
-            nodules = []
-            for result in results:
-                boxes = result["box"].cpu().numpy() if isinstance(result["box"], torch.Tensor) else result["box"]
-                scores = result["label_scores"].cpu().numpy() if isinstance(result["label_scores"], torch.Tensor) else result["label_scores"]
-                
-                logger.info(f"  检测到 {len(boxes)} 个候选框")
-                
-                for j in range(len(boxes)):
-                    nodule = {
-                        "index": j + 1,
-                        "score": float(scores[j]),
-                        "center": {
-                            "x": float(boxes[j][0]),
-                            "y": float(boxes[j][1]),
-                            "z": float(boxes[j][2])
-                        },
-                        "dimensions": {
-                            "width": float(boxes[j][3]),
-                            "height": float(boxes[j][4]),
-                            "depth": float(boxes[j][5])
-                        },
-                        "diameter": float(max(boxes[j][3], boxes[j][4], boxes[j][5]))
-                    }
-                    nodules.append(nodule)
-            
-            logger.info(f"结果解析完成: {time.time() - t0:.2f}秒")
-            
+            # 步骤 4/4: 构建输出
+            logger.info("步骤 4/4: 构建输出结果...")
             output_result = {
                 "image": os.path.basename(image_path),
                 "nodules": nodules,
@@ -364,17 +354,7 @@ class LungNoduleDetector:
             }
             
             logger.info(f"检测完成，共检测到 {len(nodules)} 个结节")
-            
-            # 输出摘要信息
-            if nodules:
-                logger.info("\n检测到的结节:")
-                for nodule in nodules:
-                    logger.info(
-                        f"  结节 {nodule['index']}: "
-                        f"置信度={nodule['score']:.4f}, "
-                        f"直径={nodule['diameter']:.2f}mm, "
-                        f"位置=({nodule['center']['x']:.2f}, {nodule['center']['y']:.2f}, {nodule['center']['z']:.2f})"
-                    )
+            self._log_nodule_summary(nodules)
             
             return output_result
             
@@ -383,6 +363,18 @@ class LungNoduleDetector:
             import traceback
             logger.error(traceback.format_exc())
             raise
+    
+    def _log_nodule_summary(self, nodules: List[Dict]):
+        """记录结节摘要信息"""
+        if nodules:
+            logger.info("\n检测到的结节:")
+            for nodule in nodules:
+                logger.info(
+                    f"  结节 {nodule['index']}: 置信度={nodule['score']:.4f}, "
+                    f"直径={nodule['diameter']:.2f}mm, "
+                    f"位置=({nodule['center']['x']:.2f}, "
+                    f"{nodule['center']['y']:.2f}, {nodule['center']['z']:.2f})"
+                )
     
     def detect_batch(self, image_paths: List[str]) -> List[Dict]:
         """

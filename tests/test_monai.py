@@ -43,7 +43,8 @@ class TestNewInferenceModule(unittest.TestCase):
         try:
             test_file = os.path.join(
                 os.path.dirname(os.path.dirname(__file__)),
-                "data", "1.3.6.1.4.1.14519.5.2.1.6279.6001.395623571499047043765181005112.nii.gz"
+                "data",
+                "1.3.6.1.4.1.14519.5.2.1.6279.6001.395623571499047043765181005112.nii.gz"
             )
             
             if os.path.exists(test_file):
@@ -142,8 +143,11 @@ class TestImageProcessor(unittest.TestCase):
     
     def test_read_nifti(self):
         """测试读取NIfTI文件"""
-        test_file = os.path.join(os.path.dirname(os.path.dirname(__file__)), 
-                               "data", "1.3.6.1.4.1.14519.5.2.1.6279.6001.395623571499047043765181005112.nii.gz")
+        test_file = os.path.join(
+                os.path.dirname(os.path.dirname(__file__)),
+                "data",
+                "1.3.6.1.4.1.14519.5.2.1.6279.6001.395623571499047043765181005112.nii.gz"
+            )
         
         if os.path.exists(test_file):
             data, affine, header = ImageProcessor.read_nifti(test_file)
@@ -156,8 +160,12 @@ class TestImageProcessor(unittest.TestCase):
     
     def test_read_metaimage(self):
         """测试读取MetaImage文件"""
-        test_file = os.path.join(os.path.dirname(os.path.dirname(__file__)),
-                               "data", "raw_data", "1.3.6.1.4.1.14519.5.2.1.6279.6001.395623571499047043765181005112.mhd")
+        test_file = os.path.join(
+                os.path.dirname(os.path.dirname(__file__)),
+                "data",
+                "raw_data",
+                "1.3.6.1.4.1.14519.5.2.1.6279.6001.395623571499047043765181005112.mhd"
+            )
         
         if os.path.exists(test_file):
             data, spacing, metadata = ImageProcessor.read_metaimage(test_file)

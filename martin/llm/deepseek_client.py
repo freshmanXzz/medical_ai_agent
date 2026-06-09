@@ -7,6 +7,12 @@ import json
 import requests
 from typing import List, Dict, Optional
 
+# 导入统一日志工具
+from martin.util import AppLogger
+
+# 获取日志实例
+logger = AppLogger.setup_logging(__name__)
+
 class DeepSeekClient:
     """
     DeepSeek LLM 客户端
@@ -17,19 +23,27 @@ class DeepSeekClient:
         model: 模型名称
     """
     
-    def __init__(self, api_key: str = None, 
-                 base_url: str = "https://api.deepseek.com/v1",
-                 model: str = "deepseek-chat"):
+    def __init__(
+        self,
+        api_key: str = None,
+        base_url: str = None,
+        model: str = None
+    ):
         self.api_key = api_key or os.environ.get("DEEPSEEK_API_KEY")
-        self.base_url = base_url
-        self.model = model
+        self.base_url = base_url or os.environ.get(
+            "DEEPSEEK_BASE_URL", "https://api.deepseek.com/v1"
+        )
+        self.model = model or os.environ.get("DEEPSEEK_MODEL", "deepseek-chat")
         
         if not self.api_key:
             raise ValueError("API密钥未设置，请设置DEEPSEEK_API_KEY环境变量或传入api_key参数")
     
-    def chat(self, messages: List[Dict[str, str]], 
-            temperature: float = 0.7,
-            max_tokens: int = 1024) -> str:
+    def chat(
+        self,
+        messages: List[Dict[str, str]],
+        temperature: float = 0.7,
+        max_tokens: int = 1024
+    ) -> str:
         """
         与DeepSeek模型对话
         

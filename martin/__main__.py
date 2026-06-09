@@ -6,6 +6,7 @@ python -m martin [命令] [参数]
 
 命令列表：
 - detect: 检测肺部结节
+- case: 生成病例报告
 - analyze: 分析检测结果
 - report: 生成医学报告
 - convert: 转换图像格式
@@ -29,6 +30,18 @@ def main():
     detect_parser.add_argument("-o", "--output", default="results/detection_results.json", 
                               help="输出结果文件路径")
     detect_parser.add_argument("--device", default=None, help="运行设备 (cuda/cpu)")
+    
+    # case 命令
+    case_parser = subparsers.add_parser("case", help="生成病例报告")
+    case_parser.add_argument("-i", "--input", required=True, help="检测结果JSON文件")
+    case_parser.add_argument("-o", "--output", default="results/case_report.md", 
+                              help="输出报告文件路径")
+    case_parser.add_argument("--type", default="detailed", choices=["brief", "detailed", "research"],
+                              help="报告类型: brief(简洁版)/detailed(详细版)/research(科研版)")
+    case_parser.add_argument("--lang", default="zh", choices=["zh", "en"],
+                              help="语言: zh(中文)/en(英文)")
+    case_parser.add_argument("--llm", action="store_true", help="使用LLM生成智能报告")
+    case_parser.add_argument("--api-key", help="DeepSeek API密钥")
     
     # analyze 命令
     analyze_parser = subparsers.add_parser("analyze", help="分析检测结果")
@@ -60,6 +73,8 @@ def main():
     # 执行命令
     if args.command == "detect":
         run_detect(args)
+    elif args.command == "case":
+        run_case(args)
     elif args.command == "analyze":
         run_analyze(args)
     elif args.command == "report":
@@ -128,6 +143,32 @@ def run_convert(args):
         print(f"转换完成！已保存到: {args.output}")
     else:
         print("不支持的转换格式")
+
+def run_case(args):
+    """生成病例报告"""
+    import json
+    
+    with open(args.input, 'r', encoding='utf-8') as f:
+        detection_result = json.load(f)
+    
+    from martin.llm import CaseGenerator
+    
+    generator = CaseGenerator(api_key=args.api_key)
+    
+    if args.llm:
+        print("使用LLM生成智能病例报告...")
+        report = generator.generate_with_llm(detection_result, args.type)
+    else:
+        print(f"生成病例报告，类型: {args.type}，语言: {args.lang}...")
+        report = generator.generate_case(detection_result, args.type, args.lang)
+    
+    os.makedirs(os.path.dirname(args.output) if os.path.dirname(args.output) else '.', exist_ok=True)
+    with open(args.output, 'w', encoding='utf-8') as f:
+        f.write(report)
+    
+    print(f"病例报告已生成并保存到: {args.output}")
+    print("\n=== 报告预览 ===")
+    print(report[:1000] + "..." if len(report) > 1000 else report)
 
 def run_info(args):
     """查看图像信息"""

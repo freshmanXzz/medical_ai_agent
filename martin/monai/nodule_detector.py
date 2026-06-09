@@ -9,6 +9,12 @@ import torch
 import numpy as np
 from typing import List, Dict, Optional
 
+# 导入统一日志工具
+from martin.util import AppLogger
+
+# 获取日志实例
+logger = AppLogger.setup_logging(__name__)
+
 class NoduleDetector:
     """
     肺部结节检测器
@@ -85,18 +91,18 @@ class NoduleDetector:
         
         self.detector.set_target_keys(box_key='box', label_key='label')
         self.detector.set_box_selector_parameters(
-            score_thresh=0.05,
-            topk_candidates_per_level=500,
+            score_thresh=0.02,
+            topk_candidates_per_level=1000,
             nms_thresh=0.22,
-            detections_per_img=100
+            detections_per_img=300
         )
         
         self.detector.set_sliding_window_inferer(
-            roi_size=[192, 192, 64],
-            overlap=0.5,
+            roi_size=[512, 512, 192],
+            overlap=0.25,
             sw_batch_size=1,
             mode='constant',
-            device=self.device
+            device='cpu'
         )
         self.detector.eval()
     
@@ -110,10 +116,13 @@ class NoduleDetector:
         Returns:
             结节检测结果列表，包含置信度、位置和尺寸信息
         """
-        from monai.transforms import Compose, LoadImaged, EnsureChannelFirstd
-        from monai.transforms import Orientationd, Spacingd, ScaleIntensityRanged, EnsureTyped
-        from monai.apps.detection.transforms.dictionary import ClipBoxToImaged
-        from monai.apps.detection.transforms.dictionary import AffineBoxToWorldCoordinated, ConvertBoxModed
+        from monai.transforms import (
+            Compose, LoadImaged, EnsureChannelFirstd,
+            Orientationd, Spacingd, ScaleIntensityRanged, EnsureTyped
+        )
+        from monai.apps.detection.transforms.dictionary import (
+            ClipBoxToImaged, AffineBoxToWorldCoordinated, ConvertBoxModed
+        )
         from monai.data import Dataset, DataLoader
         from monai.data.utils import no_collation
         
