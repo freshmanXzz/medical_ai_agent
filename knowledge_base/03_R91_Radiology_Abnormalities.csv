@@ -1,0 +1,10 @@
+ICD11_Code,Title,Category,Description
+R91.0,Abnormal findings on diagnostic imaging of lung - solitary pulmonary nodule,肺影像异常-孤立性肺结节,"Solitary pulmonary nodule on imaging"
+R91.1,Abnormal findings on diagnostic imaging of lung - multiple nodules,肺影像异常-多发性肺结节,"Multiple nodules on lung imaging"
+R91.2,Abnormal findings on diagnostic imaging of lung - infiltrate,肺影像异常-浸润影,"Pulmonary infiltrate on imaging"
+R91.3,Abnormal findings on diagnostic imaging of lung - mass,肺影像异常-肿块,"Lung mass on imaging"
+R91.4,Abnormal findings on diagnostic imaging of lung - cavitary lesion,肺影像异常-空洞,"Cavitary lesion of lung on imaging"
+R91.5,Abnormal findings on diagnostic imaging of lung - GGO,肺影像异常-磨玻璃影,"Ground glass opacity on lung imaging"
+R91.6,Abnormal findings on diagnostic imaging of lung - consolidation,肺影像异常-实变,"Consolidation on lung imaging"
+R91.8,Other abnormal findings on diagnostic imaging of lung,肺影像异常-其他,"Other abnormal findings on lung imaging"
+R91.9,Abnormal findings on diagnostic imaging of lung unspecified,肺影像异常-未特指,"Unspecified abnormal findings on lung imaging"

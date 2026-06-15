@@ -1,0 +1,20 @@
+# 向量数据库配置
+vector_db:
+  host: ${PGVECTOR_HOST:-localhost}
+  port: ${PGVECTOR_PORT:-5432}
+  dbname: ${PGVECTOR_DB:-medical_knowledge}
+  user: ${PGVECTOR_USER:-postgres}
+  password: ${PGVECTOR_PASSWORD:-postgres}
+
+# Embedding配置
+embedding:
+  model_path: models/bge-small-zh-v1.5
+  dimension: 512
+  max_seq_length: 512
+
+# RAG配置
+rag:
+  top_k: 5
+  similarity_threshold: 0.7
+  chunk_size: 500
+  chunk_overlap: 50

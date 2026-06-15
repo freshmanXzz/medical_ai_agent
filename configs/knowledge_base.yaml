@@ -1,0 +1,42 @@
+# 知识库配置
+knowledge_base:
+  directory: knowledge_base
+  
+  documents:
+    - name: "肺叶分段解剖图谱"
+      filename: "01_肺叶分段解剖图示.md"
+      type: markdown
+      category: anatomy
+    
+    - name: "ICD11肺癌编码"
+      filename: "02_ICD11_Neoplasms_Lung.csv"
+      type: csv
+      category: coding
+    
+    - name: "R91影像学异常编码"
+      filename: "03_R91_Radiology_Abnormalities.csv"
+      type: csv
+      category: coding
+    
+    - name: "CT肺结节诊断专家共识"
+      filename: "04_CT肺结节诊断专家共识2023.md"
+      type: markdown
+      category: diagnosis
+    
+    - name: "肺结节诊疗指南"
+      filename: "05_肺结节诊疗指南2024.md"
+      type: markdown
+      category: guideline
+    
+    - name: "Lung-RADS分级标准"
+      filename: "Lung-RADS_v2022.md"
+      type: markdown
+      category: classification
+
+# 分类映射
+categories:
+  anatomy: 解剖结构
+  coding: 编码分类
+  diagnosis: 诊断标准
+  guideline: 诊疗指南
+  classification: 分级标准

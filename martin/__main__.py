@@ -41,6 +41,7 @@ def main():
     case_parser.add_argument("--lang", default="zh", choices=["zh", "en"],
                               help="语言: zh(中文)/en(英文)")
     case_parser.add_argument("--llm", action="store_true", help="使用LLM生成智能报告")
+    case_parser.add_argument("--rag", action="store_true", help="使用RAG增强（基于知识库生成）")
     case_parser.add_argument("--api-key", help="DeepSeek API密钥")
     
     # analyze 命令
@@ -151,24 +152,30 @@ def run_convert(args):
 def run_case(args):
     """生成病例报告"""
     import json
-    
+
     with open(args.input, 'r', encoding='utf-8') as f:
         detection_result = json.load(f)
-    
+
     from martin.llm import CaseGenerator
-    
-    generator = CaseGenerator(api_key=args.api_key)
-    
-    if args.llm:
-        print("使用LLM生成智能病例报告...")
-        report = generator.generate_with_llm(detection_result, args.type)
+
+    # 根据参数选择生成模式
+    use_rag = args.rag
+    generator = CaseGenerator(api_key=args.api_key, use_rag=use_rag)
+
+    if args.llm or args.rag:
+        if args.rag:
+            print("使用RAG增强生成病例报告（基于知识库）...")
+            report = generator.generate_with_rag(detection_result, args.type)
+        else:
+            print("使用LLM生成智能病例报告...")
+            report = generator.generate_with_llm(detection_result, args.type)
     else:
         print(f"生成病例报告，类型: {args.type}，语言: {args.lang}...")
         report = generator.generate_case(detection_result, args.type, args.lang)
-    
+
     # 保存报告到按日期分类的目录
     saved_path = generator.save_report(report, args.output)
-    
+
     print(f"病例报告已生成并保存到: {saved_path}")
     print("\n=== 报告预览 ===")
     print(report[:1000] + "..." if len(report) > 1000 else report)

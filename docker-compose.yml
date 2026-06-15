@@ -1,0 +1,21 @@
+version: '3.8'
+services:
+  vector_db:
+    image: pgvector/pgvector:pg16
+    container_name: medical_vector_db
+    environment:
+      POSTGRES_DB: medical_knowledge
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+    ports:
+      - "5432:5432"
+    volumes:
+      - vector_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+volumes:
+  vector_data:
