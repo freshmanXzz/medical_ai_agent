@@ -1,11 +1,58 @@
 # Martin - Medical AI Agent
 
-> 基于 MONAI 深度学习框架和 DeepSeek 大语言模型的肺部 CT 结节检测与病例报告生成系统
+> **AI Agent 影像智能体雏形** —— 基于 MONAI 深度学习框架、RAG 检索增强生成技术和 DeepSeek 大语言模型的肺部 CT 智能诊断系统
+
+## 项目定位
+
+Martin 不是一个简单的病例报告生成工具，而是一个**面向医学影像的 AI Agent 雏形**。它通过多模态技术栈（计算机视觉 + 检索增强生成 + 大语言模型）实现肺部 CT 的自动化智能诊断，核心目标是：
+
+1. **精准检测**：基于深度学习定位肺部结节
+2. **循证诊断**：通过 RAG 技术确保诊断意见来自权威医学指南，避免 LLM 幻觉
+3. **智能报告**：自动生成结构化的专业病例报告
+
+## RAG 检索增强生成
+
+本项目采用 **RAG（Retrieval-Augmented Generation）** 架构解决医疗场景下大语言模型的核心痛点：
+
+### 问题：LLM 幻觉
+
+大语言模型在生成病例报告时，容易产生"看似合理但医学不准确"的内容（幻觉）。在医疗场景中，这可能导致错误的诊断建议。
+
+### 解决方案：知识库增强
+
+```
+CT影像输入 → MONAI检测结节 → RAG检索知识库 → LLM生成循证报告
+                ↓                    ↓
+            结节位置/大小    权威医学指南/共识
+```
+
+**工作流程**：
+1. **向量化存储**：将《CT肺结节诊断专家共识》、《Lung-RADS分级标准》等权威文档通过 Embedding 模型向量化，存储在 **ChromaDB** 本地向量数据库
+2. **相似度检索**：根据检测结果（结节大小、形态等）自动检索相关知识库内容
+3. **上下文增强**：将检索到的医学指南作为上下文输入 LLM，约束生成内容
+4. **循证生成**：确保每一份诊断意见和建议都有据可查，来自真实的医学文献和临床指南
+
+### 知识库来源
+
+- Lung-RADS v2022 分级标准
+- CT肺结节诊断专家共识（2023）
+- 肺结节诊疗指南（2024）
+- 肺部影像报告和数据系统
+
+### 技术实现
+
+| 组件 | 技术 |
+|:-----|:-----|
+| 向量数据库 | ChromaDB（本地持久化） |
+| Embedding 模型 | BGE-Small-ZH-v1.5（本地部署） |
+| 文档格式 | Markdown / CSV / PDF / Word |
+| 检索方式 | 余弦相似度 + 分类过滤 |
 
 ## 功能特性
 
 - **肺部结节检测**：基于 MONAI RetinaNet 3D 目标检测模型
 - **病例报告生成**：支持模板生成和 LLM 智能生成两种模式
+- **RAG 循证诊断**：通过知识库检索确保诊断意见有医学依据
 - **医学图像处理**：支持 NIfTI 和 MetaImage 格式转换
 - **LLM 智能分析**：调用 DeepSeek API 进行专业医学分析
 - **命令行工具**：提供完整的 CLI 交互界面
@@ -27,6 +74,12 @@ medical_ai_agent/
 │   ├── llm/                   # LLM 接入子模块
 │   │   ├── deepseek_client.py # DeepSeek API 客户端
 │   │   └── case_generator.py  # 病例报告生成器
+│   │
+│   ├── rag/                   # RAG 检索增强子模块
+│   │   ├── document_loader.py # 文档加载器（MD/CSV/PDF/Word）
+│   │   ├── embedding_client.py# Embedding 向量生成
+│   │   ├── vector_store.py    # ChromaDB 向量数据库
+│   │   └── retriever.py       # 知识检索器
 │   │
 │   └── util/                  # 通用工具子模块
 │       ├── logger.py          # 统一日志工具类
@@ -170,6 +223,40 @@ info = ImageProcessor.get_image_info("image.nii.gz")
 ImageProcessor.metaimage_to_nifti("input.mhd", "output.nii.gz")
 ```
 
+## RAG 知识库使用
+
+### 导入医学知识
+
+将权威医学文档（PDF/Word/Markdown/CSV）放入 `knowledge_base/` 目录，执行向量化：
+
+```bash
+# 导入知识库到 ChromaDB（自动创建向量索引）
+python scripts/import_knowledge.py
+
+# 输出位置：项目根目录 ChromaDB/（本地持久化，已排除在版本控制外）
+```
+
+### 知识库查询
+
+```python
+from martin.rag import Retriever, EmbeddingClient, VectorStore
+
+# 初始化检索器
+embedding_client = EmbeddingClient()
+vector_store = VectorStore()
+vector_store.connect()
+
+retriever = Retriever(embedding_client, vector_store, top_k=5)
+
+# 根据检测结节的特征检索相关知识
+results = retriever.search("肺结节直径8mm实性结节随访建议")
+
+for result in results:
+    print(f"相似度: {result['similarity']:.4f}")
+    print(f"来源: {result['source']}")
+    print(f"内容: {result['content'][:200]}...")
+```
+
 ## 核心模块
 
 ### monai - 医学影像模块
@@ -185,6 +272,15 @@ ImageProcessor.metaimage_to_nifti("input.mhd", "output.nii.gz")
 |:---|:-----|
 | `DeepSeekClient` | DeepSeek API 客户端 |
 | `CaseGenerator` | 病例报告生成器 |
+
+### rag - 检索增强模块
+
+| 类 | 功能 |
+|:---|:-----|
+| `DocumentLoader` | 文档加载器（支持 MD/CSV/PDF/Word） |
+| `EmbeddingClient` | BGE 模型本地 Embedding 生成 |
+| `VectorStore` | ChromaDB 向量数据库客户端 |
+| `Retriever` | 相似度检索器 |
 
 ### util - 通用工具
 
@@ -275,6 +371,8 @@ python tests/test_inference_direct.py
 |:-----|:-----|
 | 深度学习 | PyTorch + MONAI |
 | LLM | DeepSeek API (支持兼容 OpenAI 协议的端点) |
+| RAG 向量库 | ChromaDB（本地持久化） |
+| Embedding | BGE-Small-ZH-v1.5（本地部署） |
 | 图像处理 | Nibabel, NumPy, SciPy |
 | 模型 | RetinaNet 3D + ResNet50 骨干网络 |
 
