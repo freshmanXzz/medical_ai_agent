@@ -32,8 +32,7 @@ miniconda/
 .venv/
 
 # 排除向量数据库
-data/chroma_db/
-data/test_chroma_db/
+ChromaDB/
 
 # 排除日志文件
 *.log

@@ -41,7 +41,7 @@ class VectorStore:
         参数优先级：传入参数 > 环境变量 > 默认值
         """
         self.persist_directory = persist_directory or os.environ.get(
-            "CHROMA_PERSIST_DIR", "data/chroma_db"
+            "CHROMA_PERSIST_DIR", "ChromaDB"
         )
         self.collection_name = collection_name
         self._client = None

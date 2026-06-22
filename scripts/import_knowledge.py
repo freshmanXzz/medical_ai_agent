@@ -40,7 +40,7 @@ def import_knowledge_to_vector_db(
         knowledge_dir = os.path.join(os.path.dirname(os.path.dirname(__file__)), "knowledge_base")
     
     if persist_dir is None:
-        persist_dir = os.path.join(os.path.dirname(os.path.dirname(__file__)), "data", "chroma_db")
+        persist_dir = os.path.join(os.path.dirname(os.path.dirname(__file__)), "ChromaDB")
     
     # 检查知识库目录
     if not os.path.isdir(knowledge_dir):

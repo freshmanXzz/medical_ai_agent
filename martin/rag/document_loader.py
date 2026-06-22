@@ -13,6 +13,19 @@ from martin.util import AppLogger
 
 logger = AppLogger.setup_logging(__name__)
 
+# 可选依赖：PDF 和 Word 解析
+try:
+    from pypdf import PdfReader
+    HAS_PYPDF = True
+except ImportError:
+    HAS_PYPDF = False
+
+try:
+    from docx import Document
+    HAS_PYTHON_DOCX = True
+except ImportError:
+    HAS_PYTHON_DOCX = False
+
 # 常量定义
 DEFAULT_CHUNK_SIZE = 500
 DEFAULT_CHUNK_OVERLAP = 50
@@ -50,7 +63,152 @@ class DocumentLoader:
         self.chunk_size = chunk_size
         self.chunk_overlap = chunk_overlap
         logger.info(f"DocumentLoader初始化完成，chunk_size={chunk_size}, chunk_overlap={chunk_overlap}")
-    
+
+    def load_pdf(self, filepath: str, category: str = None) -> List[DocumentChunk]:
+        """
+        加载PDF文档
+
+        Args:
+            filepath: 文件路径
+            category: 分类，默认为文件名（不含扩展名）
+
+        Returns:
+            文档切分列表
+
+        Raises:
+            FileNotFoundError: 文件不存在
+            ValueError: 文件格式不支持或缺少依赖
+        """
+        if not os.path.exists(filepath):
+            logger.error(f"文件不存在: {filepath}")
+            raise FileNotFoundError(f"文件不存在: {filepath}")
+
+        if not filepath.lower().endswith('.pdf'):
+            logger.error(f"不支持的文件格式: {filepath}")
+            raise ValueError(f"不支持的文件格式，仅支持.pdf文件: {filepath}")
+
+        if not HAS_PYPDF:
+            logger.error("缺少pypdf依赖，请安装: pip install pypdf")
+            raise ValueError("缺少pypdf依赖，请安装: pip install pypdf")
+
+        logger.info(f"开始加载PDF文件: {filepath}")
+
+        # 读取PDF内容
+        reader = PdfReader(filepath)
+        text_parts = []
+        for page in reader.pages:
+            page_text = page.extract_text()
+            if page_text:
+                text_parts.append(page_text)
+
+        content = "\n".join(text_parts)
+        content = self._clean_text(content)
+
+        # 提取元数据
+        filename = os.path.basename(filepath)
+        if category is None:
+            category = os.path.splitext(filename)[0]
+
+        metadata = {
+            'source': filepath,
+            'filename': filename,
+            'file_type': 'pdf',
+            'category': category,
+            'file_size': os.path.getsize(filepath),
+            'pages': len(reader.pages)
+        }
+
+        # 切分文本
+        chunks = self._split_text(content)
+
+        # 创建DocumentChunk列表
+        document_chunks = []
+        for idx, chunk_content in enumerate(chunks):
+            chunk_metadata = metadata.copy()
+            chunk_metadata['chunk_size'] = len(chunk_content)
+            document_chunks.append(DocumentChunk(
+                content=chunk_content,
+                source=filepath,
+                category=category,
+                chunk_index=idx,
+                metadata=chunk_metadata
+            ))
+
+        logger.info(f"PDF文件加载完成: {filepath}, 共生成{len(document_chunks)}个切分")
+        return document_chunks
+
+    def load_word(self, filepath: str, category: str = None) -> List[DocumentChunk]:
+        """
+        加载Word文档（.docx）
+
+        Args:
+            filepath: 文件路径
+            category: 分类，默认为文件名（不含扩展名）
+
+        Returns:
+            文档切分列表
+
+        Raises:
+            FileNotFoundError: 文件不存在
+            ValueError: 文件格式不支持或缺少依赖
+        """
+        if not os.path.exists(filepath):
+            logger.error(f"文件不存在: {filepath}")
+            raise FileNotFoundError(f"文件不存在: {filepath}")
+
+        if not filepath.lower().endswith('.docx'):
+            logger.error(f"不支持的文件格式: {filepath}")
+            raise ValueError(f"不支持的文件格式，仅支持.docx文件: {filepath}")
+
+        if not HAS_PYTHON_DOCX:
+            logger.error("缺少python-docx依赖，请安装: pip install python-docx")
+            raise ValueError("缺少python-docx依赖，请安装: pip install python-docx")
+
+        logger.info(f"开始加载Word文件: {filepath}")
+
+        # 读取Word内容
+        doc = Document(filepath)
+        text_parts = []
+        for para in doc.paragraphs:
+            if para.text.strip():
+                text_parts.append(para.text)
+
+        content = "\n".join(text_parts)
+        content = self._clean_text(content)
+
+        # 提取元数据
+        filename = os.path.basename(filepath)
+        if category is None:
+            category = os.path.splitext(filename)[0]
+
+        metadata = {
+            'source': filepath,
+            'filename': filename,
+            'file_type': 'word',
+            'category': category,
+            'file_size': os.path.getsize(filepath),
+            'paragraphs': len(doc.paragraphs)
+        }
+
+        # 切分文本
+        chunks = self._split_text(content)
+
+        # 创建DocumentChunk列表
+        document_chunks = []
+        for idx, chunk_content in enumerate(chunks):
+            chunk_metadata = metadata.copy()
+            chunk_metadata['chunk_size'] = len(chunk_content)
+            document_chunks.append(DocumentChunk(
+                content=chunk_content,
+                source=filepath,
+                category=category,
+                chunk_index=idx,
+                metadata=chunk_metadata
+            ))
+
+        logger.info(f"Word文件加载完成: {filepath}, 共生成{len(document_chunks)}个切分")
+        return document_chunks
+
     def load_markdown(self, filepath: str, category: str = None) -> List[DocumentChunk]:
         """
         加载Markdown文档
@@ -224,7 +382,7 @@ class DocumentLoader:
         # 遍历目录
         for filename in os.listdir(dirpath):
             filepath = os.path.join(dirpath, filename)
-            
+
             if os.path.isfile(filepath):
                 try:
                     if filename.lower().endswith('.md'):
@@ -232,6 +390,12 @@ class DocumentLoader:
                         document_chunks.extend(chunks)
                     elif filename.lower().endswith('.csv'):
                         chunks = self.load_csv(filepath)
+                        document_chunks.extend(chunks)
+                    elif filename.lower().endswith('.pdf'):
+                        chunks = self.load_pdf(filepath)
+                        document_chunks.extend(chunks)
+                    elif filename.lower().endswith('.docx'):
+                        chunks = self.load_word(filepath)
                         document_chunks.extend(chunks)
                     else:
                         logger.warning(f"跳过不支持的文件类型: {filename}")
