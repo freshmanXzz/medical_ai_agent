@@ -281,8 +281,6 @@ class AgentExecutor:
                 final_output = msg.content or ""
 
         if self.verbose and final_output:
-            print(f"[Agent] 最终输出:")
-            print(final_output)
             self._thinking_logger.info("[Agent] 最终输出:")
             self._thinking_logger.info(final_output)
 
