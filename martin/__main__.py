@@ -65,6 +65,15 @@ def main():
     info_parser = subparsers.add_parser("info", help="查看图像信息")
     info_parser.add_argument("-i", "--input", required=True, help="输入图像文件路径")
     
+    # agent 命令（多轮对话）
+    agent_parser = subparsers.add_parser("agent", help="启动多轮对话 Agent")
+    agent_parser.add_argument("--image", help="首次运行的 CT 图像路径")
+    agent_parser.add_argument("--report-type", default="detailed",
+                              choices=["brief", "detailed", "research"],
+                              help="报告类型")
+    agent_parser.add_argument("--language", default="zh", choices=["zh", "en"],
+                              help="报告语言")
+    
     args = parser.parse_args()
     
     if args.command is None:
@@ -84,6 +93,8 @@ def main():
         run_convert(args)
     elif args.command == "info":
         run_info(args)
+    elif args.command == "agent":
+        handle_agent(args)
 
 def run_detect(args):
     """执行结节检测"""
@@ -141,7 +152,7 @@ def run_report(args):
 
 def run_convert(args):
     """转换图像格式"""
-    from martin.monai import ImageProcessor
+    from martin.vision import ImageProcessor
     
     if args.input.endswith('.mhd') and (args.output.endswith('.nii.gz') or args.output.endswith('.nii')):
         ImageProcessor.metaimage_to_nifti(args.input, args.output)
@@ -182,7 +193,7 @@ def run_case(args):
 
 def run_info(args):
     """查看图像信息"""
-    from martin.monai import ImageProcessor
+    from martin.vision import ImageProcessor
     
     info = ImageProcessor.get_image_info(args.input)
     
@@ -191,6 +202,102 @@ def run_info(args):
     print(f"像素间距: {info['spacing']} mm")
     print(f"总像素数: {info['voxel_count']:,}")
     print(f"数据范围: [{info['data_range'][0]}, {info['data_range'][1]}]")
+
+def handle_agent(args):
+    """处理 agent 命令，支持多轮对话。"""
+    from martin.agent.agent_builder import build_agent
+    from martin.agent.audit import AuditLogger
+
+    # 创建审计日志（session_id 同时作为 langgraph thread_id）
+    audit_logger = AuditLogger()
+    print(f"审计日志会话 ID: {audit_logger.session_id}")
+    print(f"审计日志保存到: {audit_logger.log_file}")
+    print()
+
+    # 创建 Agent（与审计日志共享 session_id，实现多轮记忆持久化）
+    print("正在初始化 AI Agent...")
+    agent_executor = build_agent(
+        verbose=True,
+        thread_id=audit_logger.session_id,
+    )
+
+    # 首次输入
+    first_input = None
+    if args.image:
+        first_input = (
+            f"分析CT图像: {args.image}，"
+            f"生成{args.report_type}类型报告（{args.language}）"
+        )
+
+    print("=" * 60)
+    print("多轮对话模式已启动（输入 exit/退出 结束会话）")
+    print("=" * 60)
+    print()
+
+    user_input = first_input
+    while True:
+        if user_input is None:
+            user_input = input(">>> ").strip()
+            if not user_input:
+                continue
+            if user_input.lower() in ("exit", "quit", "退出"):
+                print("结束会话，审计日志已保存。")
+                break
+
+        try:
+            # 执行 Agent（MemorySaver 自动管理对话历史）
+            result = agent_executor.invoke({"input": user_input})
+            output = result.get("output", "")
+
+            # 审计日志：提取 intermediate_steps
+            intermediate_steps = result.get("intermediate_steps", [])
+            for action, action_output in intermediate_steps:
+                audit_logger.log_tool_call(
+                    tool_name=action.tool,
+                    args=action.tool_input,
+                    output_summary=str(action_output)[:500],
+                )
+
+            # 打印最终输出
+            if output:
+                print()
+                print(output)
+                print()
+
+            # 保存报告到 results/
+            if args.image and output:
+                _save_agent_report(output, args)
+
+        except Exception as e:
+            error_msg = f"错误: Agent 执行失败: {e}"
+            print(error_msg)
+            audit_logger.log_agent_error(str(e))
+
+        # 首轮结束后，后续输入靠 input()
+        user_input = None
+
+
+def _save_agent_report(report: str, args) -> str:
+    """保存 Agent 生成的报告到 results/ 目录。"""
+    import os
+    from datetime import datetime
+
+    results_dir = os.path.join(
+        os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+        "results",
+    )
+    os.makedirs(results_dir, exist_ok=True)
+
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    filename = f"agent_report_{timestamp}.md"
+    filepath = os.path.join(results_dir, filename)
+
+    with open(filepath, "w", encoding="utf-8") as f:
+        f.write(report)
+
+    print(f"报告已保存到: {filepath}")
+    return filepath
+
 
 if __name__ == "__main__":
     main()

@@ -145,7 +145,7 @@ def test_result_manager():
     print("  测试 4/4: 结果管理器")
     print("-" * 70)
     
-    from martin.util import ResultManager
+    from martin.utils import ResultManager
     
     manager = ResultManager()
     

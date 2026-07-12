@@ -8,7 +8,7 @@ import requests
 from typing import List, Dict, Optional
 
 # 导入统一日志工具
-from martin.util import AppLogger
+from martin.utils import AppLogger
 
 # 获取日志实例
 logger = AppLogger.setup_logging(__name__)

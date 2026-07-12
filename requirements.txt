@@ -11,3 +11,15 @@ sentence-transformers>=2.2.0
 psycopg2-binary>=2.9.9
 pgvector>=0.2.0
 pyyaml>=6.0
+
+# LangChain 框架（声明式流水线编排）
+langchain>=1.3.0
+langchain-chroma>=0.2.0
+langchain-community>=0.3.0
+langchain-huggingface>=0.1.0
+langchain-openai>=0.2.0
+langchain-text-splitters>=0.3.0
+
+# 文档加载（可选，用于 LangChain 的 PDF/Word 支持）
+pypdf>=5.0.0
+python-docx>=1.1.0

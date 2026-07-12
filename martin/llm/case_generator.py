@@ -11,7 +11,10 @@ CaseGenerator - 病例报告生成器
 import json
 from typing import Dict, Optional, List
 
-from martin.util import AppLogger
+from martin.utils import AppLogger
+from martin.rag.retriever import search_by_detection, format_results
+from martin.rag.vector_store import get_vector_store
+from martin.llm.chat_model import get_chat_model
 
 # 获取日志实例
 logger = AppLogger.setup_logging(__name__)
@@ -38,38 +41,23 @@ class CaseGenerator:
         self._api_key = api_key
         self._base_url = base_url
         self._model = model
-        self._client = None
         self._use_rag = use_rag
         self._retriever = None
-
-    def _get_client(self):
-        """延迟初始化DeepSeek客户端"""
-        if self._client is None:
-            from .deepseek_client import DeepSeekClient
-
-            kwargs = {"api_key": self._api_key}
-            if self._base_url:
-                kwargs["base_url"] = self._base_url
-            if self._model:
-                kwargs["model"] = self._model
-            self._client = DeepSeekClient(**kwargs)
-        return self._client
 
     def _get_retriever(self):
         """延迟初始化RAG检索器"""
         if self._retriever is None and self._use_rag:
             try:
-                from martin.rag import Retriever, EmbeddingClient, VectorStore
-
-                embedding_client = EmbeddingClient()
-                vector_store = VectorStore()
-                vector_store.connect()
-                self._retriever = Retriever(embedding_client, vector_store, top_k=5)
-                logger.info("RAG检索器初始化成功")
+                vector_store = get_vector_store()
+                if vector_store is not None:
+                    logger.info("RAG检索器初始化成功")
+                else:
+                    logger.warning("向量库未初始化，禁用RAG")
+                    self._use_rag = False
             except Exception as e:
                 logger.error(f"RAG检索器初始化失败: {e}")
                 self._use_rag = False
-        return self._retriever
+        return None
 
     def _query_knowledge_base(self, detection_result: Dict) -> str:
         """
@@ -84,14 +72,10 @@ class CaseGenerator:
         if not self._use_rag:
             return ""
 
-        retriever = self._get_retriever()
-        if not retriever:
-            return ""
-
         try:
-            results = retriever.search_by_detection(detection_result)
+            results = search_by_detection(detection_result, top_k=5, threshold=0.7)
             if results:
-                context = retriever._format_results(results)
+                context = format_results(results)
                 logger.info(f"从知识库检索到 {len(results)} 条相关知识")
                 return context
             else:
@@ -501,8 +485,6 @@ Nodule {nodule['index']}:
         """
         logger.info("使用LLM生成智能病例报告")
 
-        client = self._get_client()
-
         prompt = self._build_llm_prompt(detection_result, report_type)
         messages = [
             {
@@ -513,9 +495,10 @@ Nodule {nodule['index']}:
         ]
 
         try:
-            response = client.chat(messages, temperature=0.3, max_tokens=2048)
+            model = get_chat_model(temperature=0.3, max_tokens=2048)
+            response = model.invoke(messages)
             logger.info("LLM报告生成成功")
-            return response
+            return response.content
         except Exception as e:
             logger.error(f"LLM调用失败: {e}")
             # 降级使用模板生成
@@ -626,15 +609,20 @@ Nodule {nodule['index']}:
             knowledge_context = self._format_retrieved_knowledge(retrieved_knowledge)
             logger.info(f"使用外部传入的 {len(retrieved_knowledge)} 条知识")
         else:
-            # 查询知识库
-            knowledge_context = self._query_knowledge_base(detection_result)
+            # 使用LangChain组件查询知识库
+            try:
+                results = search_by_detection(detection_result, top_k=5, threshold=0.7)
+                knowledge_context = format_results(results)
+                if results:
+                    logger.info(f"从知识库检索到 {len(results)} 条相关知识")
+            except Exception as e:
+                logger.error(f"知识库查询失败: {e}")
+                knowledge_context = ""
 
         # 如果没有知识库内容，降级到普通LLM生成
         if not knowledge_context:
             logger.info("未获取到知识库内容，降级到普通LLM生成")
             return self.generate_with_llm(detection_result, report_type)
-
-        client = self._get_client()
 
         prompt = self._build_rag_prompt(
             detection_result, report_type, knowledge_context
@@ -648,9 +636,10 @@ Nodule {nodule['index']}:
         ]
 
         try:
-            response = client.chat(messages, temperature=0.3, max_tokens=2048)
+            model = get_chat_model(temperature=0.3, max_tokens=2048)
+            response = model.invoke(messages)
             logger.info("RAG增强报告生成成功")
-            return response
+            return response.content
         except Exception as e:
             logger.error(f"RAG增强报告生成失败: {e}")
             # 降级使用模板生成
@@ -696,7 +685,7 @@ Nodule {nodule['index']}:
             保存的文件路径
         """
         import os
-        from martin.util import get_result_manager
+        from martin.utils import get_result_manager
 
         manager = get_result_manager()
 

@@ -10,7 +10,7 @@ import numpy as np
 from typing import List, Dict, Optional
 
 # 导入统一日志工具
-from martin.util import AppLogger
+from martin.utils import AppLogger
 
 # 获取日志实例
 logger = AppLogger.setup_logging(__name__)
@@ -36,7 +36,7 @@ class NoduleDetector:
             # 默认模型路径
             bundle_path = os.path.join(
                 os.path.dirname(__file__), "..", "..", 
-                "model", "lung_nodule_ct_detection-0.6.8",
+                "models", "vision", "lung_nodule_ct_detection-0.6.8",
                 "lung_nodule_ct_detection-0.6.8"
             )
             sys.path.insert(0, os.path.join(bundle_path, "scripts"))

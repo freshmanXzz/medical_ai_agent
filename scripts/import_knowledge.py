@@ -1,18 +1,22 @@
 """
 医学知识库向量化导入脚本
 
-将knowledge_base目录下的文档向量化后存储到向量数据库
-支持Markdown和CSV格式文档
+使用 LangChain 组件将 knowledge_base 目录下的文档向量化后存储到向量数据库
+支持 Markdown、CSV、PDF、DOCX 格式文档
 """
+import argparse
 import os
 import sys
 from typing import List
 
-# 添加项目路径
 sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 
-from martin.rag import DocumentLoader, EmbeddingClient, VectorStore
-from martin.util import AppLogger
+from martin.rag.document_loader import load_knowledge_base
+from martin.rag.text_splitter import split_documents
+from martin.rag.embeddings import get_embeddings
+from martin.rag.vector_store import create_vector_store, get_vector_store
+from martin.rag.retriever import search_by_detection
+from martin.utils import AppLogger
 
 logger = AppLogger.setup_logging(__name__)
 
@@ -35,70 +39,33 @@ def import_knowledge_to_vector_db(
     Returns:
         导入的向量数量
     """
-    # 设置默认路径
-    if knowledge_dir is None:
-        knowledge_dir = os.path.join(os.path.dirname(os.path.dirname(__file__)), "knowledge_base")
-    
-    if persist_dir is None:
-        persist_dir = os.path.join(os.path.dirname(os.path.dirname(__file__)), "ChromaDB")
-    
-    # 检查知识库目录
-    if not os.path.isdir(knowledge_dir):
-        logger.error(f"知识库目录不存在: {knowledge_dir}")
-        raise FileNotFoundError(f"知识库目录不存在: {knowledge_dir}")
-    
-    logger.info(f"开始导入知识库: {knowledge_dir}")
-    logger.info(f"向量数据库存储目录: {persist_dir}")
-    
-    # 初始化文档加载器
-    loader = DocumentLoader(chunk_size=chunk_size, chunk_overlap=chunk_overlap)
-    
-    # 加载目录下所有文档
+    logger.info(f"开始导入知识库")
+
+    # 加载知识库文档
     logger.info("加载知识库文档...")
-    document_chunks = loader.load_directory(knowledge_dir)
-    logger.info(f"共加载 {len(document_chunks)} 个文档切分")
-    
-    if not document_chunks:
+    documents = load_knowledge_base()
+    logger.info(f"共加载 {len(documents)} 个文档")
+
+    if not documents:
         logger.warning("未加载到任何文档")
         return 0
-    
-    # 初始化Embedding客户端
-    logger.info("初始化Embedding客户端...")
-    embedding_client = EmbeddingClient()
-    
-    # 向量化所有文档切分
-    logger.info("开始向量化文档...")
-    contents = [chunk.content for chunk in document_chunks]
-    embeddings = embedding_client.encode(contents)
-    logger.info(f"向量化完成，生成 {len(embeddings)} 个向量")
-    
-    # 准备元数据
-    sources = [chunk.source for chunk in document_chunks]
-    categories = [chunk.category for chunk in document_chunks]
-    metadatas = [chunk.metadata for chunk in document_chunks]
-    
-    # 初始化向量数据库
-    logger.info("初始化向量数据库...")
-    vector_store = VectorStore(persist_directory=persist_dir)
-    if not vector_store.connect():
-        logger.error("无法连接到向量数据库")
-        raise ConnectionError("无法连接到向量数据库")
-    
-    # 插入向量数据
-    logger.info("插入向量数据到数据库...")
-    inserted_count = vector_store.insert_chunks(
-        contents=contents,
-        embeddings=embeddings.tolist(),
-        sources=sources,
-        categories=categories,
-        metadata=metadatas
-    )
-    
+
+    # 切分文档
+    logger.info("切分文档...")
+    document_chunks = split_documents(documents)
+    logger.info(f"切分完成，生成 {len(document_chunks)} 个文档块")
+
+    # 初始化Embedding模型
+    logger.info("初始化Embedding模型...")
+    embeddings = get_embeddings()
+
+    # 创建向量数据库并插入数据
+    logger.info("创建向量数据库并插入数据...")
+    vector_store = create_vector_store(documents=document_chunks, embeddings=embeddings)
+    inserted_count = len(document_chunks)
+
     logger.info(f"成功导入 {inserted_count} 条向量记录")
-    
-    # 关闭连接
-    vector_store.disconnect()
-    
+
     return inserted_count
 
 
@@ -113,24 +80,25 @@ def query_knowledge(query: str, top_k: int = 5) -> List:
     Returns:
         检索结果列表
     """
-    from martin.rag import Retriever
-    
     logger.info(f"查询知识库: {query}")
-    
-    # 初始化检索器
-    embedding_client = EmbeddingClient()
-    vector_store = VectorStore()
-    vector_store.connect()
-    
-    retriever = Retriever(embedding_client, vector_store, top_k=top_k)
-    
-    # 执行查询
-    results = retriever.search(query)
-    
-    # 关闭连接
-    vector_store.disconnect()
-    
-    return results
+
+    vector_store = get_vector_store()
+    if vector_store is None:
+        logger.error("向量数据库未初始化")
+        return []
+
+    retriever = vector_store.as_retriever(search_kwargs={"k": top_k})
+    results = retriever.invoke(query)
+
+    return [
+        {
+            "content": doc.page_content,
+            "metadata": doc.metadata,
+            "score": doc.metadata.get("score", 0),
+            "source": doc.metadata.get("source", ""),
+        }
+        for doc in results
+    ]
 
 
 def main():
@@ -138,39 +106,37 @@ def main():
     print("=" * 60)
     print("医学知识库向量化工具")
     print("=" * 60)
-    
+
     try:
-        # 导入知识库
         inserted_count = import_knowledge_to_vector_db()
-        
+
         print(f"\n✅ 成功导入 {inserted_count} 条向量记录")
         print(f"📁 知识库目录: knowledge_base/")
         print(f"💾 向量数据库: data/chroma_db/")
-        
-        # 测试查询
+
         print("\n" + "=" * 60)
         print("测试向量查询")
         print("=" * 60)
-        
+
         test_queries = [
             "肺部结节Lung-RADS分级标准",
             "肺结节随访建议",
             "CT肺结节诊断标准"
         ]
-        
+
         for query in test_queries:
             print(f"\n🔍 查询: {query}")
             results = query_knowledge(query, top_k=3)
             print(f"📊 返回 {len(results)} 条结果")
-            
+
             for i, result in enumerate(results, 1):
                 content = result.get("content", "")[:100] + "..." if len(result.get("content", "")) > 100 else result.get("content", "")
-                print(f"  {i}. 相似度: {result.get('similarity', 0):.4f}")
+                print(f"  {i}. 相似度: {result.get('score', 0):.4f}")
                 print(f"     来源: {result.get('source', '')}")
                 print(f"     内容: {content}")
-        
+
         print("\n✅ 知识库向量化完成!")
-        
+
     except Exception as e:
         logger.error(f"向量化失败: {e}")
         print(f"\n❌ 向量化失败: {e}")

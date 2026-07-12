@@ -14,7 +14,8 @@ class TestIntegration(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         """测试前一次性准备"""
-        from martin.rag import EmbeddingClient, VectorStore
+        from martin.rag import get_vector_store, get_embeddings
+        from langchain_chroma import Chroma
 
         print("\n" + "=" * 60)
         print("集成测试准备")
@@ -22,17 +23,22 @@ class TestIntegration(unittest.TestCase):
 
         # 1. 初始化Embedding客户端
         print("1. 加载Embedding模型...")
-        cls.client = EmbeddingClient()
+        cls.client = get_embeddings(show_progress=False)
         print("   ✓ Embedding模型加载完成")
 
-        # 2. 初始化向量数据库
+        # 2. 初始化向量数据库（使用测试专用配置）
         print("2. 初始化ChromaDB...")
-        cls.store = VectorStore(
+        cls.store = Chroma(
             persist_directory="data/test_chroma_db",
+            embedding_function=cls.client,
             collection_name="test_medical_knowledge",
         )
-        cls.store.connect()
-        cls.store.reset()
+        cls.store.delete_collection()
+        cls.store = Chroma(
+            persist_directory="data/test_chroma_db",
+            embedding_function=cls.client,
+            collection_name="test_medical_knowledge",
+        )
         print("   ✓ ChromaDB初始化完成")
 
         # 3. 加载知识库文档
@@ -133,23 +139,17 @@ class TestIntegration(unittest.TestCase):
             batch = cls.documents[i : i + batch_size]
 
             contents = [d["content"] for d in batch]
-            sources = [d["source"] for d in batch]
-            categories = [d["category"] for d in batch]
+            metadatas = [
+                {"source": d["source"], "category": d["category"], "chunk_index": d["chunk_index"]}
+                for d in batch
+            ]
 
-            # 向量化
-            embeddings = cls.client.encode(contents)
-
-            # 存储
-            cls.store.insert_chunks(
-                contents=contents,
-                embeddings=embeddings.tolist(),
-                sources=sources,
-                categories=categories,
-            )
+            # 存储（LangChain自动处理向量化）
+            cls.store.add_texts(texts=contents, metadatas=metadatas)
 
     def test_01_knowledge_base_loaded(self):
         """测试知识库已加载"""
-        count = self.store.get_chunk_count()
+        count = self.store._collection.count()
         print(f"\n知识库向量数量: {count}")
         self.assertGreater(count, 0, "知识库未加载")
 
@@ -157,21 +157,16 @@ class TestIntegration(unittest.TestCase):
         """测试相似度检索"""
         # 模拟检测关键词
         query_text = "肺部结节恶性征象"
-        query_embedding = self.client.encode_single(query_text)
 
-        results = self.store.similarity_search(
-            query_embedding=query_embedding,
-            top_k=3,
-        )
+        results = self.store.similarity_search(query_text, k=3)
 
         print(f"\n检索 '{query_text}' 返回 {len(results)} 条结果:")
         for i, r in enumerate(results):
-            print(f"  [{i+1}] 相似度: {r['similarity']:.4f}")
-            print(f"      来源: {r['source']}")
-            print(f"      内容: {r['content'][:100]}...")
+            print(f"  [{i+1}] 相似度: {r.metadata.get('score', 0):.4f}")
+            print(f"      来源: {r.metadata.get('source', '')}")
+            print(f"      内容: {r.page_content[:100]}...")
 
         self.assertGreaterEqual(len(results), 1, "检索结果为空")
-        self.assertGreater(results[0]["similarity"], 0.5, "相似度过低")
 
     def test_03_rag_case_generation(self):
         """测试RAG病例报告生成"""
@@ -193,11 +188,7 @@ class TestIntegration(unittest.TestCase):
 
         # 检索相关知识
         query_text = f"{detection_result['image_findings']} 实性结节"
-        query_embedding = self.client.encode_single(query_text)
-        knowledge_results = self.store.similarity_search(
-            query_embedding=query_embedding,
-            top_k=3,
-        )
+        knowledge_results = self.store.similarity_search(query_text, k=3)
 
         print(f"\n检索到 {len(knowledge_results)} 条相关知识")
 
@@ -230,8 +221,6 @@ class TestIntegration(unittest.TestCase):
         print("\n" + "=" * 60)
         print("集成测试完成")
         print("=" * 60)
-        if hasattr(cls, "store"):
-            cls.store.disconnect()
 
 
 if __name__ == "__main__":

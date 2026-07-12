@@ -4,16 +4,32 @@ RAG完整流程测试：检测结果 + RAG检索 + LLM生成病例报告
 import os
 import sys
 import json
+import importlib
+
+import pytest
 
 # 添加项目路径
 sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 
 # 导入统一日志工具
-from martin.util import AppLogger
+from martin.utils import AppLogger
 
 logger = AppLogger.setup_logging(__name__)
 
 
+def _can_import(module_name: str) -> bool:
+    """检查模块是否可导入"""
+    try:
+        importlib.import_module(module_name)
+        return True
+    except ImportError:
+        return False
+
+
+@pytest.mark.skipif(
+    not _can_import("monai"),
+    reason="monai 未安装，跳过RAG完整流程测试（依赖推理模块）"
+)
 def test_rag_full_pipeline():
     """测试完整的RAG流程"""
     logger.info("=" * 60)
@@ -42,24 +58,25 @@ def test_rag_full_pipeline():
     # 步骤2: RAG知识库检索
     logger.info("步骤 2/3: RAG知识库检索")
     
-    from martin.rag import Retriever, EmbeddingClient, VectorStore
+    from martin.rag import get_vector_store, get_embeddings
+    from martin.rag.retriever import search_by_detection
     
     # 初始化检索器
-    embedding_client = EmbeddingClient()
-    vector_store = VectorStore()
-    vector_store.connect()
+    embeddings = get_embeddings()
+    vector_store = get_vector_store(embeddings)
     
-    retriever = Retriever(embedding_client, vector_store, top_k=5, threshold=0.7)
-    
-    # 根据检测结果检索相关知识
-    retrieved_knowledge = retriever.search_by_detection(result)
-    logger.info(f"从知识库检索到 {len(retrieved_knowledge)} 条相关知识")
+    if vector_store is None:
+        logger.warning("向量数据库未初始化，跳过知识库检索")
+        retrieved_knowledge = []
+    else:
+        retrieved_knowledge = search_by_detection(result, top_k=5, threshold=0.7)
+        logger.info(f"从知识库检索到 {len(retrieved_knowledge)} 条相关知识")
     
     # 显示检索结果摘要
     for i, knowledge in enumerate(retrieved_knowledge, 1):
-        content = knowledge.get("content", "")[:150] + "..." if len(knowledge.get("content", "")) > 150 else knowledge.get("content", "")
-        logger.info(f"知识{i} (相似度: {knowledge.get('similarity', 0):.4f})")
-        logger.info(f"   来源: {knowledge.get('source', '')}")
+        content = knowledge.page_content[:150] + "..." if len(knowledge.page_content) > 150 else knowledge.page_content
+        logger.info(f"知识{i} (相似度: {knowledge.metadata.get('score', 0):.4f})")
+        logger.info(f"   来源: {knowledge.metadata.get('source', '')}")
         logger.info(f"   内容: {content}")
     
     # 步骤3: RAG增强报告生成
@@ -88,9 +105,6 @@ def test_rag_full_pipeline():
         f.write(report)
     
     logger.info(f"报告已保存到: {report_path}")
-    
-    # 关闭连接
-    vector_store.disconnect()
     
     # 验证报告中引用了知识库来源
     logger.info("验证报告质量:")

@@ -8,7 +8,7 @@ import torch
 from typing import List, Dict, Optional
 
 # 导入统一日志工具
-from martin.util import AppLogger
+from martin.utils import AppLogger
 
 # 获取日志实例
 logger = AppLogger.setup_logging(__name__)
@@ -65,11 +65,11 @@ class LungNoduleDetector:
         possible_paths = [
             # 相对于当前文件的路径
             os.path.join(os.path.dirname(os.path.dirname(__file__)), 
-                        "model", "lung_nodule_ct_detection-0.6.8", 
+                        "models", "vision", "lung_nodule_ct_detection-0.6.8", 
                         "lung_nodule_ct_detection-0.6.8", "models", "model.pt"),
             # 相对于项目根目录的路径
             os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
-                        "model", "lung_nodule_ct_detection-0.6.8",
+                        "models", "vision", "lung_nodule_ct_detection-0.6.8",
                         "lung_nodule_ct_detection-0.6.8", "models", "model.pt"),
         ]
         
@@ -419,7 +419,7 @@ class LungNoduleDetector:
         Returns:
             保存的文件路径
         """
-        from martin.util import get_result_manager
+        from martin.utils import get_result_manager
         
         manager = get_result_manager()
         

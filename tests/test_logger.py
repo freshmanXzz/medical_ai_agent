@@ -10,7 +10,7 @@ import pytest
 # 添加项目路径
 sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 
-from martin.util import AppLogger
+from martin.utils import AppLogger
 
 
 class TestAppLogger:
@@ -48,7 +48,8 @@ class TestAppLogger:
     def test_log_file_creation(self):
         """测试日志文件创建"""
         with tempfile.TemporaryDirectory() as tmp_dir:
-            logger = AppLogger("test_file", log_dir=tmp_dir).get_logger()
+            app_logger = AppLogger("test_file", log_dir=tmp_dir)
+            logger = app_logger.get_logger()
             logger.info("test message")
             
             # 检查日志文件是否创建
@@ -60,6 +61,12 @@ class TestAppLogger:
             with open(log_path, 'r', encoding='utf-8') as f:
                 content = f.read()
                 assert "test message" in content
+            
+            # 关闭文件处理器，避免 Windows 文件锁导致清理失败
+            for handler in logger.handlers[:]:
+                if isinstance(handler, logging.FileHandler):
+                    handler.close()
+                    logger.removeHandler(handler)
     
     def test_logger_methods(self):
         """测试日志方法"""
@@ -80,7 +87,7 @@ class TestAppLogger:
     
     def test_get_logger_function(self):
         """测试便捷函数"""
-        from martin.util.logger import get_logger
+        from martin.utils.logger import get_logger
         
         logger = get_logger("test_function")
         assert isinstance(logger, logging.Logger)

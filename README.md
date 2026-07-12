@@ -1,14 +1,17 @@
 # Martin - Medical AI Agent
 
-> **AI Agent 影像智能体雏形** —— 基于 MONAI 深度学习框架、RAG 检索增强生成技术和 DeepSeek 大语言模型的肺部 CT 智能诊断系统
+> **Martin = 医学影像检测能力 + RAG知识增强能力 + LLM推理能力 + LangChain Agent智能编排**
+
+Martin 是一个**面向医学影像的 AI Agent 智能体**，基于 MONAI 深度学习框架、RAG 检索增强生成技术和 DeepSeek 大语言模型，通过 LangChain Agent 智能编排实现肺部 CT 的自动化智能诊断。
 
 ## 项目定位
 
-Martin 不是一个简单的病例报告生成工具，而是一个**面向医学影像的 AI Agent 雏形**。它通过多模态技术栈（计算机视觉 + 检索增强生成 + 大语言模型）实现肺部 CT 的自动化智能诊断，核心目标是：
+Martin 不是一个简单的病例报告生成工具，而是一个**面向医学影像的 AI Agent**。它通过多模态技术栈（计算机视觉 + 检索增强生成 + 大语言模型 + Agent 智能编排）实现肺部 CT 的自动化智能诊断，核心目标是：
 
 1. **精准检测**：基于深度学习定位肺部结节
 2. **循证诊断**：通过 RAG 技术确保诊断意见来自权威医学指南，避免 LLM 幻觉
 3. **智能报告**：自动生成结构化的专业病例报告
+4. **Agent 编排**：通过 LangChain Agent 实现检测、检索、推理的智能编排与协同
 
 ## RAG 检索增强生成
 
@@ -55,45 +58,82 @@ CT影像输入 → MONAI检测结节 → RAG检索知识库 → LLM生成循证�
 - **RAG 循证诊断**：通过知识库检索确保诊断意见有医学依据
 - **医学图像处理**：支持 NIfTI 和 MetaImage 格式转换
 - **LLM 智能分析**：调用 DeepSeek API 进行专业医学分析
-- **命令行工具**：提供完整的 CLI 交互界面
+- **Agent 对话**：支持多轮对话、上下文记忆、工具调用
+- **审计日志**：完整记录工具调用和推理过程，支持医疗审计溯源
 - **GPU 加速**：支持 CUDA 加速推理
 
 ## 项目结构
 
 ```
 medical_ai_agent/
-├── martin/                    # 核心源码包
-│   ├── __init__.py            # 包初始化，导出核心类
-│   ├── __main__.py            # CLI 命令行入口
-│   ├── inference.py           # 统一推理模块
-│   │
-│   ├── monai/                 # MONAI 医学影像子模块
-│   │   ├── nodule_detector.py # 结节检测器
-│   │   └── image_processor.py # 图像处理工具
-│   │
-│   ├── llm/                   # LLM 接入子模块
-│   │   ├── deepseek_client.py # DeepSeek API 客户端
-│   │   └── case_generator.py  # 病例报告生成器
-│   │
-│   ├── rag/                   # RAG 检索增强子模块
-│   │   ├── document_loader.py # 文档加载器（MD/CSV/PDF/Word）
-│   │   ├── embedding_client.py# Embedding 向量生成
-│   │   ├── vector_store.py    # ChromaDB 向量数据库
-│   │   └── retriever.py       # 知识检索器
-│   │
-│   └── util/                  # 通用工具子模块
-│       ├── logger.py          # 统一日志工具类
-│       └── result_manager.py  # 结果文件管理器
-│
-├── tests/                     # 单元测试
-├── model/                     # 预训练模型权重
-├── data/                      # 测试数据
-├── doc/                       # 项目文档
-├── results/                   # 输出结果（按日期分类，自动生成）
-│   └── YYYY-MM-DD/           # 按日期存储
-├── log/                       # 日志文件（自动生成）
-└── README.md
+├── main.py                             # 终端启动入口（Agent 对话）
+├── audit/                              # 审计日志目录
+├── configs/                            # 配置文件
+│   ├── __init__.py
+│   ├── knowledge_base.yaml
+│   └── vector_db.yaml
+├── data/                               # 数据目录
+│   ├── chroma_db/                      # 向量数据库
+│   ├── raw_data/                       # 原始图像数据
+│   └── test_chroma_db/                 # 测试向量数据库
+├── knowledge_base/                     # 医学知识库文档
+├── martin/                             # 核心包
+│   ├── __init__.py                     # 包入口
+│   ├── __main__.py                     # CLI 入口（子命令）
+│   ├── config.py                       # 统一配置
+│   ├── inference.py                    # 检测推理入口
+│   ├── agent/                          # Agent 编排层
+│   │   ├── __init__.py
+│   │   ├── agent.py                    # LangChain Agent 创建与执行器
+│   │   ├── agent_builder.py            # Agent 构建工厂（组装 LLM/Tools/Prompt/Memory/Logger）
+│   │   ├── audit.py                    # 审计日志记录器
+│   │   ├── prompt.py                   # 系统 Prompt 定义
+│   │   └── tools.py                    # Agent 工具集（analyze_image, retrieve_knowledge, generate_report）
+│   ├── rag/                            # RAG 检索增强模块
+│   │   ├── __init__.py
+│   │   ├── document_loader.py          # 文档加载器
+│   │   ├── text_splitter.py            # 文本切分器
+│   │   ├── embeddings.py               # 向量嵌入
+│   │   ├── vector_store.py             # 向量数据库
+│   │   └── retriever.py                # 检索器
+│   ├── llm/                            # LLM 推理模块
+│   │   ├── __init__.py
+│   │   ├── chat_model.py               # LangChain ChatModel 封装
+│   │   ├── chain.py                    # LCEL 报告生成链
+│   │   ├── case_generator.py           # 病例报告生成器
+│   │   └── deepseek_client.py          # DeepSeek API 客户端
+│   ├── vision/                         # 医学视觉模块
+│   │   ├── __init__.py
+│   │   ├── image_processor.py          # 图像处理和格式转换
+│   │   └── nodule_detector.py          # 结节检测器
+│   └── utils/                          # 通用工具
+│       ├── __init__.py
+│       ├── logger.py                   # 日志工具
+│       └── result_manager.py           # 结果管理
+├── models/                             # 模型目录
+│   ├── vision/                         # 视觉检测模型
+│   └── embedding/                      # 嵌入模型
+├── scripts/                            # 脚本工具
+├── tests/                              # 测试
+├── README.md
+├── requirements.txt
+├── pyproject.toml
+└── docker-compose.yml
 ```
+
+### 模块职责说明
+
+| 模块 | 职责 | 底层技术 |
+|------|------|----------|
+| martin/agent | Agent 智能编排与对话管理 | LangChain Agent |
+| martin/agent/agent_builder | Agent 组件组装工厂 | LangChain |
+| martin/agent/prompt | 系统 Prompt 定义 | - |
+| martin/agent/tools | Agent 工具集（检测、检索、报告） | @tool 装饰器 |
+| martin/agent/audit | 审计日志记录 | JSONL |
+| martin/rag | 知识检索增强 | LangChain RAG |
+| martin/llm | 大语言模型推理 | LangChain ChatModel |
+| martin/vision | 医学影像检测 | MONAI |
+| martin/utils | 通用工具 | Python 标准库 |
 
 ## 快速开始
 
@@ -101,8 +141,11 @@ medical_ai_agent/
 
 ```bash
 # 创建虚拟环境
-conda create -n monai_learning python=3.10
-conda activate monai_learning
+python -m venv .venv
+# Windows PowerShell
+.venv\Scripts\Activate.ps1
+# Linux/Mac
+source .venv/bin/activate
 
 # 安装依赖
 pip install -r requirements.txt
@@ -113,30 +156,71 @@ pip install -r requirements.txt
 从 MONAI Model Zoo 下载预训练模型，放置到以下路径：
 
 ```
-model/lung_nodule_ct_detection-0.6.8/
-└── lung_nodule_ct_detection-0.6.8/
-    └── models/
-        └── model.pt
+models/vision/lung_nodule_ct_detection-0.6.8/
+└── models/
+    └── model.pt
 ```
 
-### 一键测试
+下载 Embedding 模型到：
 
-运行完整流程测试脚本：
+```
+models/embedding/bge-small-zh-v1.5/
+```
+
+### 导入知识库
 
 ```bash
-# 基础测试（无需API密钥）
-python tests/test_one_click.py
-
-# 完整测试（包含LLM，需要API密钥）
-set DEEPSEEK_API_KEY=sk-xxx
-python tests/test_one_click.py
+# 导入医学知识到向量数据库
+python scripts/import_knowledge.py
 ```
 
-测试内容：
-1. CT图像检测推理
-2. 病例报告生成（模板）
-3. 病例报告生成（LLM，需要API密钥）
-4. 结果管理器验证
+## Agent 对话模式（推荐）
+
+### 启动方式
+
+```bash
+# 方式 1：独立入口（推荐）
+python main.py
+
+# 方式 2：模块子命令
+python -m martin agent
+
+# 方式 3：带初始图像参数
+python -m martin agent --image "data/image.nii.gz" --report-type detailed
+```
+
+### 运行效果
+
+```
+================================
+      Martin Medical Agent
+      医学智能体已启动
+
+  输入 exit 退出对话
+================================
+
+Martin: 您好！我是 Martin 医学智能体，可以为您提供医学影像分析和知识查询服务。
+
+User: 肺结节有哪些常见影像表现？
+
+[Agent] 调用工具: retrieve_knowledge
+[Agent] 工具参数: {'detection_context': '{"image": "unknown", "total_nodules": 0, "nodules": []}'}
+[Agent] 推理过程: 用户询问肺结节影像表现，需要检索医学知识库获取相关信息...
+[Agent] 观察结果: 根据 Lung-RADS 标准，肺结节按密度分为实性结节、部分实性结节和磨玻璃结节...
+
+Martin: 根据医学知识库检索结果，肺结节常见影像表现包括：实性结节、部分实性结节和磨玻璃结节...
+
+User: 退出
+Martin: 再见！
+```
+
+### Agent 工具说明
+
+| 工具 | 功能 | 参数 |
+|------|------|------|
+| `analyze_image` | 肺部CT图像结节检测 | `image_path` |
+| `retrieve_knowledge` | 检索医学知识库 | `detection_context` |
+| `generate_report` | 生成结构化病例报告 | `detection_result`, `report_type`, `language` |
 
 ## 命令行使用
 
@@ -214,13 +298,26 @@ report = llm_gen.generate_with_llm(result, "detailed")
 ### 图像处理
 
 ```python
-from martin.monai import ImageProcessor
+from martin.vision import ImageProcessor
 
 # 获取图像信息
 info = ImageProcessor.get_image_info("image.nii.gz")
 
 # 格式转换
 ImageProcessor.metaimage_to_nifti("input.mhd", "output.nii.gz")
+```
+
+### 创建 Agent
+
+```python
+from martin.agent import build_agent
+
+# 构建 Agent（自动完成 LLM/Tools/Prompt/Memory/Logger 的组装）
+agent = build_agent(verbose=True, thread_id="session-001")
+
+# 执行推理（MemorySaver 自动管理多轮对话记忆）
+response = agent.invoke({"input": "肺结节有哪些常见影像表现？"})
+print(response["output"])
 ```
 
 ## RAG 知识库使用
@@ -233,33 +330,46 @@ ImageProcessor.metaimage_to_nifti("input.mhd", "output.nii.gz")
 # 导入知识库到 ChromaDB（自动创建向量索引）
 python scripts/import_knowledge.py
 
-# 输出位置：项目根目录 ChromaDB/（本地持久化，已排除在版本控制外）
+# 输出位置：data/chroma_db/（本地持久化，已排除在版本控制外）
 ```
 
 ### 知识库查询
 
 ```python
-from martin.rag import Retriever, EmbeddingClient, VectorStore
+from martin.rag import search_by_detection
+from martin.rag.embeddings import get_embeddings
+from martin.rag.vector_store import get_vector_store
 
-# 初始化检索器
-embedding_client = EmbeddingClient()
-vector_store = VectorStore()
-vector_store.connect()
+# 初始化向量存储
+embeddings = get_embeddings()
+vector_store = get_vector_store(embeddings)
 
-retriever = Retriever(embedding_client, vector_store, top_k=5)
+# 创建检索器
+retriever = vector_store.as_retriever(search_kwargs={"k": 5})
 
-# 根据检测结节的特征检索相关知识
-results = retriever.search("肺结节直径8mm实性结节随访建议")
+# 直接查询
+results = retriever.invoke("肺结节直径8mm实性结节随访建议")
 
 for result in results:
-    print(f"相似度: {result['similarity']:.4f}")
-    print(f"来源: {result['source']}")
-    print(f"内容: {result['content'][:200]}...")
+    print(f"来源: {result.metadata.get('source', '')}")
+    print(f"内容: {result.page_content[:200]}...")
+
+# 根据检测结果检索
+detection_result = {
+    "image": "test.nii.gz",
+    "total_nodules": 1,
+    "nodules": [{"index": 1, "diameter": 8.0, "score": 0.95}]
+}
+results = search_by_detection(detection_result, top_k=5)
+
+for result in results:
+    print(f"来源: {result.metadata.get('source', '')}")
+    print(f"内容: {result.page_content[:200]}...")
 ```
 
 ## 核心模块
 
-### monai - 医学影像模块
+### vision - 医学视觉模块
 
 | 类 | 功能 |
 |:---|:-----|
@@ -270,6 +380,7 @@ for result in results:
 
 | 类 | 功能 |
 |:---|:-----|
+| `ChatModel` | LangChain ChatModel 封装 |
 | `DeepSeekClient` | DeepSeek API 客户端 |
 | `CaseGenerator` | 病例报告生成器 |
 
@@ -278,11 +389,24 @@ for result in results:
 | 类 | 功能 |
 |:---|:-----|
 | `DocumentLoader` | 文档加载器（支持 MD/CSV/PDF/Word） |
-| `EmbeddingClient` | BGE 模型本地 Embedding 生成 |
+| `TextSplitter` | 文本切分器 |
+| `Embeddings` | BGE 模型本地 Embedding 生成 |
 | `VectorStore` | ChromaDB 向量数据库客户端 |
 | `Retriever` | 相似度检索器 |
 
-### util - 通用工具
+### agent - Agent 编排模块
+
+| 类/函数 | 功能 |
+|:---|:-----|
+| `AgentExecutor` | LangChain Agent 执行器（支持多轮对话记忆） |
+| `build_agent()` | Agent 构建工厂（一键组装所有组件） |
+| `SYSTEM_PROMPT` | 系统提示词定义 |
+| `AuditLogger` | 审计日志记录（医疗审计溯源） |
+| `analyze_image` | Agent 工具：图像检测 |
+| `retrieve_knowledge` | Agent 工具：知识库检索 |
+| `generate_report` | Agent 工具：报告生成 |
+
+### utils - 通用工具
 
 | 类 | 功能 |
 |:---|:-----|
@@ -323,9 +447,6 @@ python -m pytest tests/ -v
 
 # 运行特定测试
 python -m pytest tests/test_monai.py -v
-
-# 直接运行推理测试
-python tests/test_inference_direct.py
 ```
 
 ## 输出格式
@@ -358,13 +479,6 @@ python tests/test_inference_direct.py
 | CUDA | >= 11.8 (推荐) |
 | GPU显存 | >= 8GB |
 
-## 项目文档
-
-详细 API 文档请查看：
-
-- [项目完整文档](doc/PROJECT_DOCUMENTATION.md)
-- [API 参考文档](doc/API_DOCUMENTATION.md)
-
 ## 技术栈
 
 | 组件 | 技术 |
@@ -373,6 +487,7 @@ python tests/test_inference_direct.py
 | LLM | DeepSeek API (支持兼容 OpenAI 协议的端点) |
 | RAG 向量库 | ChromaDB（本地持久化） |
 | Embedding | BGE-Small-ZH-v1.5（本地部署） |
+| Agent 编排 | LangChain + LangGraph |
 | 图像处理 | Nibabel, NumPy, SciPy |
 | 模型 | RetinaNet 3D + ResNet50 骨干网络 |
 
@@ -380,6 +495,7 @@ python tests/test_inference_direct.py
 
 - [MONAI](https://monai.io/)
 - [DeepSeek](https://www.deepseek.com/)
+- [LangChain](https://www.langchain.com/)
 - [LUNA16 Challenge](https://luna16.grand-challenge.org/)
 
 ## 许可证

@@ -1,514 +1,160 @@
+"""LangChain 文档加载器封装模块
+
+支持多种格式文档的加载：
+- Markdown (.md)
+- CSV (.csv)
+- PDF (.pdf)
+- Word (.docx)
+
+提供目录遍历加载和基于配置的知识库加载功能。
 """
-DocumentLoader - 文档加载器
-支持医学知识库文档的解析和切分
-"""
-import os
-import csv
-import re
-from typing import List, Dict, Optional
-from dataclasses import dataclass
 
-# 导入统一日志工具
-from martin.util import AppLogger
+import warnings
+from pathlib import Path
+from typing import List
 
-logger = AppLogger.setup_logging(__name__)
+import yaml
+from langchain_community.document_loaders import (
+    CSVLoader,
+    Docx2txtLoader,
+    PyPDFLoader,
+    TextLoader,
+)
+from langchain_core.documents import Document
 
-# 可选依赖：PDF 和 Word 解析
-try:
-    from pypdf import PdfReader
-    HAS_PYPDF = True
-except ImportError:
-    HAS_PYPDF = False
+from martin.config import config
 
-try:
-    from docx import Document
-    HAS_PYTHON_DOCX = True
-except ImportError:
-    HAS_PYTHON_DOCX = False
+# 支持的文件扩展名到加载器的映射
+LOADER_MAP = {
+    ".md": TextLoader,
+    ".csv": CSVLoader,
+    ".pdf": PyPDFLoader,
+    ".docx": Docx2txtLoader,
+}
 
-# 常量定义
-DEFAULT_CHUNK_SIZE = 500
-DEFAULT_CHUNK_OVERLAP = 50
+# 支持的扩展名集合
+SUPPORTED_EXTENSIONS = set(LOADER_MAP.keys())
 
 
-@dataclass
-class DocumentChunk:
-    """文档切分数据类"""
-    content: str
-    source: str
-    category: str
-    chunk_index: int
-    metadata: Dict
+def _get_loader(file_path: str):
+    """根据文件扩展名返回对应的文档加载器实例。
 
-
-class DocumentLoader:
-    """
-    文档加载器
-    
-    支持Markdown和CSV文档的解析和切分
-    
     Args:
-        chunk_size: 切分大小（字符数）
-        chunk_overlap: 切分重叠（字符数）
+        file_path: 文件路径
+
+    Returns:
+        加载器实例；如果不支持该扩展名，返回 None
     """
-    
-    def __init__(self, chunk_size: int = DEFAULT_CHUNK_SIZE, chunk_overlap: int = DEFAULT_CHUNK_OVERLAP):
-        """
-        初始化文档加载器
-        
-        Args:
-            chunk_size: 切分大小（字符数），默认500
-            chunk_overlap: 切分重叠（字符数），默认50
-        """
-        self.chunk_size = chunk_size
-        self.chunk_overlap = chunk_overlap
-        logger.info(f"DocumentLoader初始化完成，chunk_size={chunk_size}, chunk_overlap={chunk_overlap}")
+    ext = Path(file_path).suffix.lower()
+    loader_class = LOADER_MAP.get(ext)
+    if loader_class is None:
+        return None
+    return loader_class(file_path)
 
-    def load_pdf(self, filepath: str, category: str = None) -> List[DocumentChunk]:
-        """
-        加载PDF文档
 
-        Args:
-            filepath: 文件路径
-            category: 分类，默认为文件名（不含扩展名）
+def load_knowledge_directory(dir_path: str) -> List[Document]:
+    """遍历指定目录，加载所有支持的文档文件。
 
-        Returns:
-            文档切分列表
+    按文件扩展名自动选择对应的加载器：
+      - .md  → TextLoader
+      - .csv → CSVLoader
+      - .pdf → PyPDFLoader
+      - .docx → Docx2txtLoader
 
-        Raises:
-            FileNotFoundError: 文件不存在
-            ValueError: 文件格式不支持或缺少依赖
-        """
-        if not os.path.exists(filepath):
-            logger.error(f"文件不存在: {filepath}")
-            raise FileNotFoundError(f"文件不存在: {filepath}")
+    单个文件加载失败不影响其他文件的加载，失败信息通过 warnings.warn() 输出。
 
-        if not filepath.lower().endswith('.pdf'):
-            logger.error(f"不支持的文件格式: {filepath}")
-            raise ValueError(f"不支持的文件格式，仅支持.pdf文件: {filepath}")
+    Args:
+        dir_path: 要遍历的目录路径
 
-        if not HAS_PYPDF:
-            logger.error("缺少pypdf依赖，请安装: pip install pypdf")
-            raise ValueError("缺少pypdf依赖，请安装: pip install pypdf")
+    Returns:
+        所有成功加载的 Document 列表，每个 Document 的 metadata 中包含 source 字段
+    """
+    directory = Path(dir_path)
+    if not directory.exists() or not directory.is_dir():
+        warnings.warn(f"目录不存在或不是有效目录: {dir_path}")
+        return []
 
-        logger.info(f"开始加载PDF文件: {filepath}")
+    documents: List[Document] = []
+    for file_path in sorted(directory.iterdir()):
+        if not file_path.is_file():
+            continue
+        ext = file_path.suffix.lower()
+        if ext not in SUPPORTED_EXTENSIONS:
+            continue
 
-        # 读取PDF内容
-        reader = PdfReader(filepath)
-        text_parts = []
-        for page in reader.pages:
-            page_text = page.extract_text()
-            if page_text:
-                text_parts.append(page_text)
+        try:
+            loader = _get_loader(str(file_path))
+            if loader is None:
+                continue
+            docs = loader.load()
+            for doc in docs:
+                doc.metadata["source"] = file_path.name
+            documents.extend(docs)
+        except Exception as e:
+            warnings.warn(f"加载文件失败 [{file_path.name}]: {e}")
+            continue
 
-        content = "\n".join(text_parts)
-        content = self._clean_text(content)
+    return documents
 
-        # 提取元数据
-        filename = os.path.basename(filepath)
-        if category is None:
-            category = os.path.splitext(filename)[0]
 
-        metadata = {
-            'source': filepath,
-            'filename': filename,
-            'file_type': 'pdf',
-            'category': category,
-            'file_size': os.path.getsize(filepath),
-            'pages': len(reader.pages)
-        }
+def load_knowledge_base() -> List[Document]:
+    """从配置文件中读取知识库文档列表，加载所有文档并添加分类信息。
 
-        # 切分文本
-        chunks = self._split_text(content)
+    配置来源：configs/knowledge_base.yaml
+    - 从 knowledge_base.directory 字段读取文档存放目录
+    - 从 knowledge_base.documents 列表读取每个文档的 filename 和 category
+    - 为每个 Document 的 metadata 添加 category（分类）字段
 
-        # 创建DocumentChunk列表
-        document_chunks = []
-        for idx, chunk_content in enumerate(chunks):
-            chunk_metadata = metadata.copy()
-            chunk_metadata['chunk_size'] = len(chunk_content)
-            document_chunks.append(DocumentChunk(
-                content=chunk_content,
-                source=filepath,
-                category=category,
-                chunk_index=idx,
-                metadata=chunk_metadata
-            ))
+    Returns:
+        所有加载完成的 Document 列表
+    """
+    # 读取知识库配置文件
+    config_path = config.project_root / "configs" / "knowledge_base.yaml"
+    if not config_path.exists():
+        warnings.warn(f"知识库配置文件不存在: {config_path}")
+        return []
 
-        logger.info(f"PDF文件加载完成: {filepath}, 共生成{len(document_chunks)}个切分")
-        return document_chunks
+    with open(config_path, "r", encoding="utf-8") as f:
+        kb_config = yaml.safe_load(f)
 
-    def load_word(self, filepath: str, category: str = None) -> List[DocumentChunk]:
-        """
-        加载Word文档（.docx）
+    if not kb_config or "knowledge_base" not in kb_config:
+        warnings.warn("知识库配置文件格式错误：缺少 knowledge_base 字段")
+        return []
 
-        Args:
-            filepath: 文件路径
-            category: 分类，默认为文件名（不含扩展名）
+    kb = kb_config["knowledge_base"]
+    kb_dir = config.project_root / kb.get("directory", "knowledge_base")
+    documents_config = kb.get("documents", [])
 
-        Returns:
-            文档切分列表
+    if not documents_config:
+        warnings.warn("知识库配置中未定义任何文档")
+        return []
 
-        Raises:
-            FileNotFoundError: 文件不存在
-            ValueError: 文件格式不支持或缺少依赖
-        """
-        if not os.path.exists(filepath):
-            logger.error(f"文件不存在: {filepath}")
-            raise FileNotFoundError(f"文件不存在: {filepath}")
+    all_documents: List[Document] = []
+    for doc_entry in documents_config:
+        filename = doc_entry.get("filename")
+        category = doc_entry.get("category", "unknown")
 
-        if not filepath.lower().endswith('.docx'):
-            logger.error(f"不支持的文件格式: {filepath}")
-            raise ValueError(f"不支持的文件格式，仅支持.docx文件: {filepath}")
+        if not filename:
+            warnings.warn("知识库配置中存在缺少 filename 的文档条目")
+            continue
 
-        if not HAS_PYTHON_DOCX:
-            logger.error("缺少python-docx依赖，请安装: pip install python-docx")
-            raise ValueError("缺少python-docx依赖，请安装: pip install python-docx")
+        file_path = kb_dir / filename
+        if not file_path.exists():
+            warnings.warn(f"知识库文档不存在: {file_path}")
+            continue
 
-        logger.info(f"开始加载Word文件: {filepath}")
+        try:
+            loader = _get_loader(str(file_path))
+            if loader is None:
+                warnings.warn(f"不支持的文档格式: {file_path.suffix} ({filename})")
+                continue
+            docs = loader.load()
+            for doc in docs:
+                doc.metadata["source"] = filename
+                doc.metadata["category"] = category
+            all_documents.extend(docs)
+        except Exception as e:
+            warnings.warn(f"加载知识库文档失败 [{filename}]: {e}")
+            continue
 
-        # 读取Word内容
-        doc = Document(filepath)
-        text_parts = []
-        for para in doc.paragraphs:
-            if para.text.strip():
-                text_parts.append(para.text)
-
-        content = "\n".join(text_parts)
-        content = self._clean_text(content)
-
-        # 提取元数据
-        filename = os.path.basename(filepath)
-        if category is None:
-            category = os.path.splitext(filename)[0]
-
-        metadata = {
-            'source': filepath,
-            'filename': filename,
-            'file_type': 'word',
-            'category': category,
-            'file_size': os.path.getsize(filepath),
-            'paragraphs': len(doc.paragraphs)
-        }
-
-        # 切分文本
-        chunks = self._split_text(content)
-
-        # 创建DocumentChunk列表
-        document_chunks = []
-        for idx, chunk_content in enumerate(chunks):
-            chunk_metadata = metadata.copy()
-            chunk_metadata['chunk_size'] = len(chunk_content)
-            document_chunks.append(DocumentChunk(
-                content=chunk_content,
-                source=filepath,
-                category=category,
-                chunk_index=idx,
-                metadata=chunk_metadata
-            ))
-
-        logger.info(f"Word文件加载完成: {filepath}, 共生成{len(document_chunks)}个切分")
-        return document_chunks
-
-    def load_markdown(self, filepath: str, category: str = None) -> List[DocumentChunk]:
-        """
-        加载Markdown文档
-        
-        Args:
-            filepath: 文件路径
-            category: 分类，默认为文件名（不含扩展名）
-        
-        Returns:
-            文档切分列表
-        
-        Raises:
-            FileNotFoundError: 文件不存在
-            ValueError: 文件格式不支持
-        """
-        if not os.path.exists(filepath):
-            logger.error(f"文件不存在: {filepath}")
-            raise FileNotFoundError(f"文件不存在: {filepath}")
-        
-        if not filepath.lower().endswith('.md'):
-            logger.error(f"不支持的文件格式: {filepath}")
-            raise ValueError(f"不支持的文件格式，仅支持.md文件: {filepath}")
-        
-        logger.info(f"开始加载Markdown文件: {filepath}")
-        
-        # 读取文件内容
-        with open(filepath, 'r', encoding='utf-8') as f:
-            content = f.read()
-        
-        # 清理文本
-        content = self._clean_text(content)
-        
-        # 提取元数据
-        filename = os.path.basename(filepath)
-        if category is None:
-            category = os.path.splitext(filename)[0]
-        
-        metadata = {
-            'source': filepath,
-            'filename': filename,
-            'file_type': 'markdown',
-            'category': category,
-            'file_size': os.path.getsize(filepath)
-        }
-        
-        # 切分文本
-        chunks = self._split_text(content)
-        
-        # 创建DocumentChunk列表
-        document_chunks = []
-        for idx, chunk_content in enumerate(chunks):
-            chunk_metadata = metadata.copy()
-            chunk_metadata['chunk_size'] = len(chunk_content)
-            document_chunks.append(DocumentChunk(
-                content=chunk_content,
-                source=filepath,
-                category=category,
-                chunk_index=idx,
-                metadata=chunk_metadata
-            ))
-        
-        logger.info(f"Markdown文件加载完成: {filepath}, 共生成{len(document_chunks)}个切分")
-        return document_chunks
-    
-    def load_csv(self, filepath: str, category: str = None) -> List[DocumentChunk]:
-        """
-        加载CSV文档
-        
-        Args:
-            filepath: 文件路径
-            category: 分类，默认为文件名（不含扩展名）
-        
-        Returns:
-            文档切分列表
-        
-        Raises:
-            FileNotFoundError: 文件不存在
-            ValueError: 文件格式不支持
-        """
-        if not os.path.exists(filepath):
-            logger.error(f"文件不存在: {filepath}")
-            raise FileNotFoundError(f"文件不存在: {filepath}")
-        
-        if not filepath.lower().endswith('.csv'):
-            logger.error(f"不支持的文件格式: {filepath}")
-            raise ValueError(f"不支持的文件格式，仅支持.csv文件: {filepath}")
-        
-        logger.info(f"开始加载CSV文件: {filepath}")
-        
-        # 提取元数据
-        filename = os.path.basename(filepath)
-        if category is None:
-            category = os.path.splitext(filename)[0]
-        
-        document_chunks = []
-        
-        with open(filepath, 'r', encoding='utf-8') as f:
-            # 使用csv模块读取
-            reader = csv.DictReader(f)
-            headers = reader.fieldnames
-            
-            for row_idx, row in enumerate(reader):
-                # 将每行数据转换为文本
-                row_content = self._csv_row_to_text(row, headers)
-                
-                # 清理文本
-                row_content = self._clean_text(row_content)
-                
-                # 如果内容过长，进行切分
-                if len(row_content) > self.chunk_size:
-                    chunks = self._split_text(row_content)
-                    for chunk_idx, chunk_content in enumerate(chunks):
-                        chunk_metadata = {
-                            'source': filepath,
-                            'filename': filename,
-                            'file_type': 'csv',
-                            'category': category,
-                            'row_index': row_idx,
-                            'headers': headers,
-                            'chunk_size': len(chunk_content)
-                        }
-                        document_chunks.append(DocumentChunk(
-                            content=chunk_content,
-                            source=filepath,
-                            category=category,
-                            chunk_index=len(document_chunks),
-                            metadata=chunk_metadata
-                        ))
-                else:
-                    chunk_metadata = {
-                        'source': filepath,
-                        'filename': filename,
-                        'file_type': 'csv',
-                        'category': category,
-                        'row_index': row_idx,
-                        'headers': headers,
-                        'chunk_size': len(row_content)
-                    }
-                    document_chunks.append(DocumentChunk(
-                        content=row_content,
-                        source=filepath,
-                        category=category,
-                        chunk_index=len(document_chunks),
-                        metadata=chunk_metadata
-                    ))
-        
-        logger.info(f"CSV文件加载完成: {filepath}, 共生成{len(document_chunks)}个切分")
-        return document_chunks
-    
-    def load_directory(self, dirpath: str) -> List[DocumentChunk]:
-        """
-        加载目录下所有文档
-        
-        Args:
-            dirpath: 目录路径
-        
-        Returns:
-            文档切分列表
-        
-        Raises:
-            NotADirectoryError: 路径不是目录
-        """
-        if not os.path.isdir(dirpath):
-            logger.error(f"路径不是目录: {dirpath}")
-            raise NotADirectoryError(f"路径不是目录: {dirpath}")
-        
-        logger.info(f"开始加载目录: {dirpath}")
-        
-        document_chunks = []
-        
-        # 遍历目录
-        for filename in os.listdir(dirpath):
-            filepath = os.path.join(dirpath, filename)
-
-            if os.path.isfile(filepath):
-                try:
-                    if filename.lower().endswith('.md'):
-                        chunks = self.load_markdown(filepath)
-                        document_chunks.extend(chunks)
-                    elif filename.lower().endswith('.csv'):
-                        chunks = self.load_csv(filepath)
-                        document_chunks.extend(chunks)
-                    elif filename.lower().endswith('.pdf'):
-                        chunks = self.load_pdf(filepath)
-                        document_chunks.extend(chunks)
-                    elif filename.lower().endswith('.docx'):
-                        chunks = self.load_word(filepath)
-                        document_chunks.extend(chunks)
-                    else:
-                        logger.warning(f"跳过不支持的文件类型: {filename}")
-                except Exception as e:
-                    logger.error(f"加载文件失败: {filename}, 错误: {str(e)}")
-                    continue
-        
-        logger.info(f"目录加载完成: {dirpath}, 共生成{len(document_chunks)}个切分")
-        return document_chunks
-    
-    def _split_text(self, text: str) -> List[str]:
-        """
-        切分文本
-        
-        使用滑动窗口方式切分文本，保持上下文连续性
-        
-        Args:
-            text: 原文本
-        
-        Returns:
-            切分后的文本列表
-        """
-        if not text:
-            return []
-        
-        # 如果文本长度小于chunk_size，直接返回
-        if len(text) <= self.chunk_size:
-            return [text]
-        
-        chunks = []
-        start = 0
-        
-        while start < len(text):
-            # 计算当前chunk的结束位置
-            end = start + self.chunk_size
-            
-            # 如果不是最后一个chunk，尝试在句子边界切分
-            if end < len(text):
-                # 查找最近的句子边界（句号、问号、感叹号、换行符）
-                boundary_chars = ['。', '！', '？', '；', '\n', '.', '!', '?', ';']
-                best_boundary = -1
-                
-                for char in boundary_chars:
-                    # 在chunk末尾附近查找边界（向后50字符范围内）
-                    boundary = text.rfind(char, start + self.chunk_size - 50, end + 50)
-                    if boundary > start and boundary < end + 50:
-                        if best_boundary == -1 or boundary > best_boundary:
-                            best_boundary = boundary
-                
-                # 如果找到合适的边界，在边界后切分
-                if best_boundary > start:
-                    end = best_boundary + 1
-            
-            # 提取chunk
-            chunk = text[start:end].strip()
-            if chunk:
-                chunks.append(chunk)
-            
-            # 计算下一个chunk的起始位置（考虑重叠）
-            next_start = end - self.chunk_overlap
-            
-            # 确保start不会倒退
-            if next_start <= start:
-                start = end
-            else:
-                start = next_start
-        
-        return chunks
-    
-    def _clean_text(self, text: str) -> str:
-        """
-        清理文本
-        
-        移除多余的空白字符和特殊字符
-        
-        Args:
-            text: 原文本
-        
-        Returns:
-            清理后的文本
-        """
-        if not text:
-            return ""
-        
-        # 移除多余的空白字符
-        text = re.sub(r'\s+', ' ', text)
-        
-        # 移除特殊控制字符
-        text = re.sub(r'[\x00-\x08\x0b\x0c\x0e-\x1f\x7f-\x9f]', '', text)
-        
-        # 移除首尾空白
-        text = text.strip()
-        
-        return text
-    
-    def _csv_row_to_text(self, row: Dict, headers: List[str]) -> str:
-        """
-        将CSV行转换为文本
-        
-        Args:
-            row: CSV行数据（字典格式）
-            headers: 列标题列表
-        
-        Returns:
-            格式化的文本
-        """
-        if not row or not headers:
-            return ""
-        
-        parts = []
-        for header in headers:
-            value = row.get(header, '')
-            if value:
-                parts.append(f"{header}: {value}")
-        
-        return " | ".join(parts)
+    return all_documents

@@ -154,10 +154,17 @@ class TestCaseGenerator:
     
     def test_generate_with_llm_fallback(self):
         """测试LLM生成失败时的降级机制"""
-        generator = CaseGenerator(api_key="invalid_key")
+        from unittest.mock import patch
         
-        # 应该降级使用模板生成
-        report = generator.generate_with_llm(TEST_DETECTION_RESULT, "brief")
+        generator = CaseGenerator()
+        
+        # 使用 mock 模拟 LLM 调用失败
+        with patch('martin.llm.case_generator.get_chat_model') as mock_get_model:
+            mock_model = mock_get_model.return_value
+            mock_model.invoke.side_effect = ValueError("Invalid API Key")
+            
+            # 应该降级使用模板生成
+            report = generator.generate_with_llm(TEST_DETECTION_RESULT, "brief")
         
         assert isinstance(report, str)
         assert "医学报告摘要" in report

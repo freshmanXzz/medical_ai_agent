@@ -4,12 +4,24 @@
 import os
 import sys
 import json
+import importlib
 from datetime import datetime
+
+import pytest
 
 # 添加项目路径
 sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 
-from martin.util import ResultManager, get_result_manager
+
+def _can_import(module_name: str) -> bool:
+    """检查模块是否可导入"""
+    try:
+        importlib.import_module(module_name)
+        return True
+    except ImportError:
+        return False
+
+from martin.utils import ResultManager, get_result_manager
 
 
 def test_result_manager():
@@ -79,6 +91,10 @@ def test_result_manager():
     return True
 
 
+@pytest.mark.skipif(
+    not _can_import("monai"),
+    reason="monai 未安装，跳过推理模块测试"
+)
 def test_inference_with_date_dir():
     """测试推理模块的日期目录保存功能"""
     print("\n" + "=" * 60)

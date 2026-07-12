@@ -10,7 +10,7 @@ import numpy as np
 sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 
 from martin.inference import LungNoduleDetector, detect_nodules, logger
-from martin.monai import NoduleDetector as OldNoduleDetector, ImageProcessor
+from martin.vision import NoduleDetector as OldNoduleDetector, ImageProcessor
 
 # 记录测试开始
 logger.info("=" * 60)
