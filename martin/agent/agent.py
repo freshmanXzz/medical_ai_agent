@@ -59,13 +59,6 @@ def _get_thinking_logger() -> logging.Logger:
     file_handler.setFormatter(file_fmt)
     thinking_logger.addHandler(file_handler)
 
-    # 控制台处理器（精简格式，与原有 print() 风格一致）
-    console_handler = logging.StreamHandler()
-    console_handler.setLevel(logging.INFO)
-    console_fmt = logging.Formatter("%(message)s")
-    console_handler.setFormatter(console_fmt)
-    thinking_logger.addHandler(console_handler)
-
     logger.info("Agent 思维日志文件: %s", log_file)
     return thinking_logger
 
