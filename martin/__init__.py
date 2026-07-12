@@ -7,7 +7,7 @@ __author__ = "Martin"
 # 导出核心模块
 from .vision import *
 from .llm import *
-from .inference import LungNoduleDetector, detect_nodules
+from .vision.nodule_detector import NoduleDetector, detect_nodules
 
 # 导出 RAG 组件
 from .rag import (

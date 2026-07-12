@@ -10,7 +10,7 @@ from typing import Dict
 
 from langchain_core.tools import tool
 
-from martin.inference import LungNoduleDetector
+from martin.vision.nodule_detector import NoduleDetector
 from martin.llm.chain import (
     _generate_template_report,
     generate_report as chain_generate_report,
@@ -98,7 +98,7 @@ def analyze_image(image_path: str, reasoning: str = "") -> str:
     logger.info("调用 analyze_image 工具，图像路径: %s", image_path)
 
     try:
-        detector = LungNoduleDetector()
+        detector = NoduleDetector()
         result = detector.detect(image_path)
     except FileNotFoundError:
         logger.error("图像文件不存在: %s", image_path)

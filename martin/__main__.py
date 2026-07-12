@@ -98,13 +98,13 @@ def main():
 
 def run_detect(args):
     """执行结节检测"""
-    from martin.inference import LungNoduleDetector
+    from martin.vision.nodule_detector import NoduleDetector
     import json
     import os
     
     print(f"正在检测: {args.input}")
     
-    detector = LungNoduleDetector()
+    detector = NoduleDetector()
     result = detector.detect(args.input)
     
     # 保存结果到按日期分类的目录

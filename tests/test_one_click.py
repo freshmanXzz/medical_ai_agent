@@ -35,7 +35,7 @@ def test_inference():
     print("  测试 1/4: CT图像检测推理")
     print("-" * 70)
     
-    from martin.inference import LungNoduleDetector
+    from martin.vision.nodule_detector import NoduleDetector
     
     # 测试文件
     test_file = os.path.join(
@@ -51,7 +51,7 @@ def test_inference():
     print(f"  测试文件: {os.path.basename(test_file)}")
     
     # 初始化检测器
-    detector = LungNoduleDetector()
+    detector = NoduleDetector()
     print(f"  检测器设备: {detector.device}")
     
     # 执行检测

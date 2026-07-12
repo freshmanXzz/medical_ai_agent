@@ -39,9 +39,9 @@ def test_rag_full_pipeline():
     # 步骤1: CT图像检测推理
     logger.info("步骤 1/3: CT图像检测推理")
     
-    from martin.inference import LungNoduleDetector
+    from martin.vision.nodule_detector import NoduleDetector
     
-    detector = LungNoduleDetector()
+    detector = NoduleDetector()
     test_file = os.path.join(
         os.path.dirname(os.path.dirname(__file__)),
         "data",

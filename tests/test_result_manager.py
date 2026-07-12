@@ -101,7 +101,7 @@ def test_inference_with_date_dir():
     print("测试推理模块日期目录保存")
     print("=" * 60)
     
-    from martin.inference import LungNoduleDetector
+    from martin.vision.nodule_detector import NoduleDetector
     
     # 检查测试文件
     test_file = os.path.join(
@@ -117,7 +117,7 @@ def test_inference_with_date_dir():
     print(f"测试文件: {test_file}")
     
     # 初始化检测器
-    detector = LungNoduleDetector()
+    detector = NoduleDetector()
     
     # 执行检测
     print("执行检测...")

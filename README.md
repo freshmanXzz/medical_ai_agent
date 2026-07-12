@@ -87,18 +87,19 @@ medical_ai_agent/
 ├── audit/                              # 审计日志目录
 ├── configs/                            # 配置文件
 │   ├── __init__.py
-│   ├── knowledge_base.yaml
-│   └── vector_db.yaml
+│   └── knowledge_base.yaml
 ├── data/                               # 数据目录
 │   ├── chroma_db/                      # 向量数据库
-│   ├── raw_data/                       # 原始图像数据
 │   └── test_chroma_db/                 # 测试向量数据库
 ├── knowledge_base/                     # 医学知识库文档
 ├── martin/                             # 核心包
 │   ├── __init__.py                     # 包入口
 │   ├── __main__.py                     # CLI 入口（子命令）
 │   ├── config.py                       # 统一配置
-│   ├── inference.py                    # 检测推理入口
+│   ├── vision/                         # 医学视觉模块
+│   │   ├── __init__.py
+│   │   ├── nodule_detector.py           # 肺结节检测推理
+│   │   └── image_processor.py          # 图像处理工具
 │   ├── agent/                          # Agent 编排层
 │   │   ├── __init__.py
 │   │   ├── agent.py                    # LangChain Agent 创建与执行器
@@ -119,10 +120,6 @@ medical_ai_agent/
 │   │   ├── chain.py                    # LCEL 报告生成链
 │   │   ├── case_generator.py           # 病例报告生成器
 │   │   └── deepseek_client.py          # DeepSeek API 客户端
-│   ├── vision/                         # 医学视觉模块
-│   │   ├── __init__.py
-│   │   ├── image_processor.py          # 图像处理和格式转换
-│   │   └── nodule_detector.py          # 结节检测器
 │   └── utils/                          # 通用工具
 │       ├── __init__.py
 │       ├── logger.py                   # 日志工具
@@ -134,8 +131,7 @@ medical_ai_agent/
 ├── tests/                              # 测试
 ├── README.md
 ├── requirements.txt
-├── pyproject.toml
-└── docker-compose.yml
+└── pyproject.toml
 ```
 
 ### 模块职责说明
@@ -277,10 +273,10 @@ python -m martin info -i data/ct_scan.nii.gz
 ### 检测结节
 
 ```python
-from martin import LungNoduleDetector, detect_nodules
+from martin import NoduleDetector, detect_nodules
 
 # 方式1：使用类
-detector = LungNoduleDetector()
+detector = NoduleDetector()
 result = detector.detect("data/image.nii.gz")
 
 # 方式2：使用便捷函数
@@ -292,7 +288,7 @@ print(f"检测到 {result['total_nodules']} 个结节")
 ### 批量检测
 
 ```python
-detector = LungNoduleDetector()
+detector = NoduleDetector()
 image_paths = ["image1.nii.gz", "image2.nii.gz"]
 results = detector.detect_batch(image_paths)
 ```

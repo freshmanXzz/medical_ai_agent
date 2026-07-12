@@ -9,8 +9,8 @@ import numpy as np
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 
-from martin.inference import LungNoduleDetector, detect_nodules, logger
-from martin.vision import NoduleDetector as OldNoduleDetector, ImageProcessor
+from martin.vision.nodule_detector import NoduleDetector, detect_nodules, logger
+from martin.vision import ImageProcessor
 
 # 记录测试开始
 logger.info("=" * 60)
@@ -44,13 +44,13 @@ class TestNewInferenceModule(unittest.TestCase):
             logger.warning("[WARN] 测试数据文件不存在")
             print("[WARN] 测试数据文件不存在")
 
-    def test_lung_nodule_detector_initialization(self):
-        """测试 LungNoduleDetector 初始化"""
+    def test_nodule_detector_initialization(self):
+        """测试 NoduleDetector 初始化"""
         try:
-            detector = LungNoduleDetector()
+            detector = NoduleDetector()
             self.assertIsNotNone(detector.detector)
-            logger.info("[OK] LungNoduleDetector 初始化成功")
-            print("[OK] LungNoduleDetector 初始化成功")
+            logger.info("[OK] NoduleDetector 初始化成功")
+            print("[OK] NoduleDetector 初始化成功")
         except Exception as e:
             logger.error(f"[WARN] 检测器初始化失败: {e}")
             print(f"[WARN] 检测器初始化失败: {e}")
@@ -61,8 +61,8 @@ class TestNewInferenceModule(unittest.TestCase):
         logger.info("[OK] detect_nodules 函数存在")
         print("[OK] detect_nodules 函数存在")
 
-    def test_detect_with_inference_module(self):
-        """测试使用新推理模块进行检测（复用类级别缓存结果）"""
+    def test_detect_with_nodule_detector(self):
+        """测试使用 NoduleDetector 进行检测（复用类级别缓存结果）"""
         if not self.__class__.cached_result:
             logger.warning("[WARN] 推理测试跳过（无缓存结果）")
             print("[WARN] 推理测试跳过（无缓存结果）")
@@ -112,31 +112,6 @@ class TestNewInferenceModule(unittest.TestCase):
                 msg = f"  [OK] 图像 {result['image']}: {result['total_nodules']} 个结节"
                 logger.info(msg)
                 print(msg)
-
-class TestLegacyNoduleDetector(unittest.TestCase):
-    """测试旧的结节检测器（保留向后兼容）"""
-    
-    def test_detector_initialization(self):
-        """测试检测器初始化"""
-        try:
-            detector = OldNoduleDetector()
-            self.assertIsNotNone(detector.detector)
-            logger.info("[OK] 旧版检测器初始化成功")
-            print("[OK] 旧版检测器初始化成功")
-        except Exception as e:
-            logger.error(f"[WARN] 旧版检测器初始化失败: {e}")
-            print(f"[WARN] 旧版检测器初始化失败: {e}")
-    
-    def test_detect_method_exists(self):
-        """测试检测方法存在"""
-        try:
-            detector = OldNoduleDetector()
-            self.assertTrue(hasattr(detector, 'detect'))
-            logger.info("[OK] 旧版检测方法存在")
-            print("[OK] 旧版检测方法存在")
-        except Exception as e:
-            logger.error(f"[WARN] 测试跳过: {e}")
-            print(f"[WARN] 测试跳过: {e}")
 
 class TestImageProcessor(unittest.TestCase):
     """测试图像处理模块"""
