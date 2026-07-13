@@ -77,9 +77,7 @@ def test_case_generator(result):
     print("  测试 2/4: 病例报告生成（模板）")
     print("-" * 70)
     
-    from martin.llm import CaseGenerator
-    
-    generator = CaseGenerator()
+    from martin.llm.chain import generate_report
     
     # 生成三种报告
     report_types = ["brief", "detailed", "research"]
@@ -87,8 +85,11 @@ def test_case_generator(result):
     
     for report_type in report_types:
         print(f"  生成 {report_type} 报告...")
-        report = generator.generate_case(result, report_type, "zh")
-        saved_path = generator.save_report(report)
+        report = generate_report(result, report_type=report_type)
+        saved_path = os.path.join("results", f"report_{report_type}.md")
+        os.makedirs("results", exist_ok=True)
+        with open(saved_path, "w", encoding="utf-8") as f:
+            f.write(report)
         saved_paths.append(saved_path)
         print(f"    已保存: {os.path.basename(saved_path)}")
     
@@ -113,16 +114,15 @@ def test_llm_generation(result):
         print("    Linux/Mac: export DEEPSEEK_API_KEY=your-key")
         return None
     
-    from martin.llm import CaseGenerator
-    
-    generator = CaseGenerator()
+    from martin.llm.chain import generate_report
     
     print("  使用 DeepSeek LLM 生成智能报告...")
-    print(f"  API端点: {generator._get_client().base_url}")
-    print(f"  模型: {generator._get_client().model}")
     
-    report = generator.generate_with_llm(result, "detailed")
-    saved_path = generator.save_report(report)
+    report = generate_report(result, report_type="detailed")
+    saved_path = os.path.join("results", "llm_report.md")
+    os.makedirs("results", exist_ok=True)
+    with open(saved_path, "w", encoding="utf-8") as f:
+        f.write(report)
     
     print(f"  [通过] LLM报告已保存: {os.path.basename(saved_path)}")
     print()

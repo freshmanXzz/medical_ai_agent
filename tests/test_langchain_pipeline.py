@@ -395,9 +395,15 @@ def test_chain_no_nodules_template():
     assert "未检测到" in research
 
 
-def test_chain_generate_report_fallback():
-    """验证 generate_report 在没有 LLM 时的降级行为"""
+def test_chain_generate_report_fallback(monkeypatch):
+    """验证 generate_report 在 LLM 失败时的降级行为"""
     from martin.llm.chain import generate_report
+
+    # 模拟 LLM 创建失败，强制触发模板降级
+    monkeypatch.setattr(
+        "martin.llm.chain.get_chat_model",
+        lambda: (_ for _ in ()).throw(ValueError("模拟 LLM 不可用")),
+    )
 
     result = {
         "image": "test.nii.gz",
@@ -413,11 +419,39 @@ def test_chain_generate_report_fallback():
         ],
     }
 
-    # 不配置 API Key 时会降级到模板生成
     report = generate_report(result, report_type="detailed")
     assert isinstance(report, str)
     assert len(report) > 0
     assert "test.nii.gz" in report
+
+
+def test_build_patient_info():
+    """验证患者信息格式化辅助函数。"""
+    from martin.llm.chain import _build_patient_info
+
+    assert _build_patient_info(None) == "未提供"
+    assert _build_patient_info({}) == "未提供"
+    assert _build_patient_info({"patient_info": {}}) == "未提供"
+
+    info = _build_patient_info({
+        "patient_info": {
+            "age": 60,
+            "gender": "男",
+            "smoking_history": "吸烟 20 年",
+        },
+    })
+    assert "年龄：60 岁" in info
+    assert "性别：男" in info
+    assert "吸烟史：吸烟 20 年" in info
+
+
+def test_build_patient_info_flat_dict():
+    """验证兼容无 patient_info 嵌套的字典格式。"""
+    from martin.llm.chain import _build_patient_info
+
+    info = _build_patient_info({"age": 55, "gender": "女"})
+    assert "年龄：55 岁" in info
+    assert "性别：女" in info
 
 
 def test_chain_build_knowledge_context_no_db():

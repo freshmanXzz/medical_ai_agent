@@ -14,7 +14,7 @@ class TestAgentInitialization:
 
         agent = create_agent(verbose=False)
         assert agent is not None
-        assert len(agent.tools) == 3
+        assert len(agent.tools) == 4
         assert agent.handle_parsing_errors is True
 
     def test_agent_system_prompt_contains_reasoning(self):
@@ -34,6 +34,7 @@ class TestAgentInitialization:
         assert "analyze_image" in tool_names
         assert "retrieve_knowledge" in tool_names
         assert "generate_report" in tool_names
+        assert "update_case_context" in tool_names
 
 
 class TestAuditLogger:

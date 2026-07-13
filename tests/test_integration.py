@@ -170,50 +170,39 @@ class TestIntegration(unittest.TestCase):
 
     def test_03_rag_case_generation(self):
         """测试RAG病例报告生成"""
-        from martin.llm import CaseGenerator
+        from martin.llm.chain import generate_report
 
         # 模拟影像检测结果
         detection_result = {
             "nodules": [
                 {
-                    "id": 1,
-                    "confidence": 0.92,
-                    "diameter_mm": 8.5,
-                    "texture": "solid",
-                    "location": "右上肺叶",
+                    "index": 1,
+                    "score": 0.92,
+                    "diameter": 8.5,
+                    "center": {"x": 0, "y": 0, "z": 0},
+                    "dimensions": {"width": 5, "height": 5, "depth": 5},
                 }
             ],
-            "image_findings": "右肺上叶见一实性结节，直径约8.5mm，边缘分叶状",
+            "total_nodules": 1,
+            "image": "test.nii.gz",
         }
 
         # 检索相关知识
-        query_text = f"{detection_result['image_findings']} 实性结节"
+        query_text = "实性结节"
         knowledge_results = self.store.similarity_search(query_text, k=3)
 
         print(f"\n检索到 {len(knowledge_results)} 条相关知识")
 
         # 生成报告
-        generator = CaseGenerator()
+        report = generate_report(detection_result, report_type="detailed")
 
-        try:
-            report = generator.generate_with_rag(
-                detection_result=detection_result,
-                retrieved_knowledge=knowledge_results,
-            )
+        print("-" * 40)
+        print(report[:500] if len(report) > 500 else report)
+        print("-" * 40)
 
-            print("\n生成的病例报告:")
-            print("-" * 40)
-            print(report[:500] if len(report) > 500 else report)
-            print("-" * 40)
-
-            # 验证报告内容
-            self.assertIn("结节", report, "报告应包含结节描述")
-            self.assertIn("肺", report, "报告应包含肺部描述")
-
-        except Exception as e:
-            # 如果LLM未配置，跳过
-            print(f"\nLLM生成跳过: {e}")
-            self.skipTest(f"LLM未配置: {e}")
+        # 验证报告内容
+        self.assertIn("结节", report, "报告应包含结节描述")
+        self.assertIn("肺", report, "报告应包含肺部描述")
 
     @classmethod
     def tearDownClass(cls):

@@ -193,4 +193,103 @@ class TestGenerateReportTool:
         args, kwargs = mock_chain.call_args
         assert kwargs.get("report_type") == "brief"
         assert kwargs.get("language") == "zh"
+        assert kwargs.get("case_context") == {}
         assert result == "# 报告"
+
+    @patch("martin.agent.tools.chain_generate_report")
+    def test_generate_report_passes_case_context(self, mock_chain):
+        """测试 generate_report 将病例上下文正确传递给链。"""
+        mock_chain.return_value = "# 报告"
+
+        from martin.agent.tools import generate_report
+
+        detection_json = json.dumps({
+            "image": "test.nii.gz",
+            "total_nodules": 1,
+            "nodules": [{"index": 1, "score": 0.9, "diameter": 6.0}],
+        })
+        case_context_json = json.dumps({
+            "patient_info": {"age": 60, "gender": "男"},
+        })
+
+        _unwrap(generate_report)(
+            detection_result=detection_json,
+            report_type="detailed",
+            case_context=case_context_json,
+        )
+
+        args, kwargs = mock_chain.call_args
+        assert kwargs.get("case_context") == {
+            "patient_info": {"age": 60, "gender": "男"},
+        }
+
+    @patch("martin.agent.tools.chain_generate_report")
+    def test_generate_report_invalid_case_context(self, mock_chain):
+        """测试病例上下文 JSON 无效时降级为空字典。"""
+        mock_chain.return_value = "# 报告"
+
+        from martin.agent.tools import generate_report
+
+        detection_json = json.dumps({
+            "image": "test.nii.gz",
+            "total_nodules": 1,
+            "nodules": [{"index": 1, "score": 0.9, "diameter": 6.0}],
+        })
+
+        _unwrap(generate_report)(
+            detection_result=detection_json,
+            case_context="invalid json",
+        )
+
+        args, kwargs = mock_chain.call_args
+        assert kwargs.get("case_context") == {}
+
+
+class TestUpdateCaseContextTool:
+    """测试 update_case_context 工具。"""
+
+    def test_update_case_context_extracts_info(self):
+        """测试从自然语言中抽取并更新患者信息。"""
+        from martin.agent.case_context import CaseContext
+        from martin.agent.tools import (
+            update_case_context,
+            get_case_context,
+            set_case_context,
+        )
+
+        original = get_case_context()
+        set_case_context(CaseContext())
+        try:
+            result = _unwrap(update_case_context)(
+                user_input="患者男性，60岁，吸烟20年，有肺癌家族史"
+            )
+            assert "已更新病例信息" in result
+            assert "年龄 60 岁" in result
+            assert "性别 男" in result
+            assert "吸烟史" in result
+            assert "家族史" in result
+
+            context = get_case_context()
+            assert context.patient_info["age"] == 60
+            assert context.patient_info["gender"] == "男"
+            assert "患者男性，60岁" in context.clinical_notes[0]
+        finally:
+            set_case_context(original)
+
+    def test_update_case_context_no_info(self):
+        """测试未识别到患者信息时返回友好提示。"""
+        from martin.agent.case_context import CaseContext
+        from martin.agent.tools import (
+            update_case_context,
+            get_case_context,
+            set_case_context,
+        )
+
+        original = get_case_context()
+        set_case_context(CaseContext())
+        try:
+            result = _unwrap(update_case_context)(user_input="请生成报告")
+            assert "未从输入中识别到新的患者信息" in result
+            assert len(get_case_context().clinical_notes) == 1
+        finally:
+            set_case_context(original)

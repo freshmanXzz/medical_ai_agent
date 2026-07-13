@@ -163,31 +163,22 @@ def run_convert(args):
 def run_case(args):
     """生成病例报告"""
     import json
+    import os
 
     with open(args.input, 'r', encoding='utf-8') as f:
         detection_result = json.load(f)
 
-    from martin.llm import CaseGenerator
+    from martin.llm.chain import generate_report
 
-    # 根据参数选择生成模式
-    use_rag = args.rag
-    generator = CaseGenerator(api_key=args.api_key, use_rag=use_rag)
+    print(f"生成病例报告，类型: {args.type}...")
+    report = generate_report(detection_result, report_type=args.type)
 
-    if args.llm or args.rag:
-        if args.rag:
-            print("使用RAG增强生成病例报告（基于知识库）...")
-            report = generator.generate_with_rag(detection_result, args.type)
-        else:
-            print("使用LLM生成智能病例报告...")
-            report = generator.generate_with_llm(detection_result, args.type)
-    else:
-        print(f"生成病例报告，类型: {args.type}，语言: {args.lang}...")
-        report = generator.generate_case(detection_result, args.type, args.lang)
+    # 保存报告
+    os.makedirs(os.path.dirname(args.output) or ".", exist_ok=True)
+    with open(args.output, "w", encoding="utf-8") as f:
+        f.write(report)
 
-    # 保存报告到按日期分类的目录
-    saved_path = generator.save_report(report, args.output)
-
-    print(f"病例报告已生成并保存到: {saved_path}")
+    print(f"病例报告已生成并保存到: {args.output}")
     print("\n=== 报告预览 ===")
     print(report[:1000] + "..." if len(report) > 1000 else report)
 

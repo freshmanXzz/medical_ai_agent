@@ -16,7 +16,7 @@
 
 import json
 import logging
-from typing import Dict, Optional
+from typing import Any, Dict, Optional
 
 from langchain_core.output_parsers import StrOutputParser
 from langchain_core.prompts import ChatPromptTemplate
@@ -81,8 +81,7 @@ diagnosis_prompt = ChatPromptTemplate.from_messages([
     (
         "human",
         """【患者信息】
-- 患者ID: {image_name}
-- 检测类型: 胸部CT
+{patient_info}
 
 【检测结果】
 - 结节数量: {total_nodules} 个
@@ -97,6 +96,54 @@ diagnosis_prompt = ChatPromptTemplate.from_messages([
 - 请基于以上信息生成病例报告。""",
     ),
 ])
+
+
+def _build_patient_info(case_context: Optional[Any]) -> str:
+    """从病例上下文字典构建患者信息文本。
+
+    仅当 ``case_context`` 包含有效患者信息字段时返回格式化字符串，
+    否则返回 ``未提供``。
+
+    Args:
+        case_context: 包含患者信息的字典或 ``CaseContext`` 实例，可能为空。
+
+    Returns:
+        格式化后的患者信息文本。
+    """
+    # 局部导入以避免 ``martin.agent`` 包与 ``martin.llm.chain`` 之间的循环导入
+    from martin.agent.case_context import CaseContext
+
+    if not case_context:
+        return "未提供"
+
+    if isinstance(case_context, CaseContext):
+        patient_info = case_context.patient_info
+    elif isinstance(case_context, dict):
+        patient_info = case_context.get("patient_info", case_context)
+    else:
+        return "未提供"
+
+    if not isinstance(patient_info, dict):
+        return "未提供"
+
+    labels = {
+        "age": "年龄",
+        "gender": "性别",
+        "smoking_history": "吸烟史",
+        "family_history": "家族史",
+    }
+    parts = []
+    for key, label in labels.items():
+        value = patient_info.get(key)
+        if value is not None and value != "":
+            if key == "age":
+                parts.append(f"{label}：{value} 岁")
+            else:
+                parts.append(f"{label}：{value}")
+
+    if not parts:
+        return "未提供"
+    return "\n".join(parts)
 
 
 def _build_nodules_detail(detection_result: Dict, report_type: str) -> str:
@@ -485,6 +532,7 @@ def create_diagnosis_chain():
             nodules_detail=lambda x: _build_nodules_detail(
                 x.get("detection_result"), x.get("report_type", "detailed")
             ),
+            patient_info=lambda x: _build_patient_info(x.get("case_context")),
         )
         | diagnosis_prompt
         | model
@@ -497,7 +545,10 @@ def create_diagnosis_chain():
 
 
 def generate_report(
-    detection_result: Dict, report_type: str = "detailed", language: str = "zh"
+    detection_result: Dict,
+    report_type: str = "detailed",
+    language: str = "zh",
+    case_context: Optional[Dict] = None,
 ) -> str:
     """生成病例报告（最外层调用接口）。
 
@@ -513,6 +564,7 @@ def generate_report(
             - nodules (list): 结节详情列表
         report_type: 报告类型，可选 brief / detailed / research，默认为 detailed。
         language: 报告语言，目前仅支持 zh（中文），默认为 zh。
+        case_context: 病例上下文字典，用于注入患者信息，默认为 None。
 
     Returns:
         生成的病例报告字符串。
@@ -533,6 +585,7 @@ def generate_report(
         "total_nodules": detection_result.get("total_nodules", 0),
         "report_type": report_type,
         "detection_result": detection_result,
+        "case_context": case_context or {},
     }
 
     # 第一级：尝试 LCEL 链

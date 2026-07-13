@@ -1,0 +1,585 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Martin Medical Agent — 调用流程可视化</title>
+<script src="https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.min.js"></script>
+<style>
+  :root {
+    --bg: #0d1117;
+    --card: #161b22;
+    --border: #30363d;
+    --text: #e6edf3;
+    --text-dim: #8b949e;
+    --blue: #58a6ff;
+    --green: #3fb950;
+    --orange: #d29922;
+    --purple: #bc8cff;
+    --red: #f85149;
+    --cyan: #39d2c0;
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Noto Sans SC', sans-serif;
+    padding: 32px;
+    line-height: 1.6;
+  }
+  .container { max-width: 1200px; margin: 0 auto; }
+  h1 {
+    font-size: 28px;
+    font-weight: 700;
+    margin-bottom: 4px;
+    color: #fff;
+  }
+  .subtitle {
+    color: var(--text-dim);
+    font-size: 14px;
+    margin-bottom: 32px;
+  }
+  h2 {
+    font-size: 18px;
+    font-weight: 600;
+    margin: 32px 0 12px;
+    padding-bottom: 8px;
+    border-bottom: 1px solid var(--border);
+    color: #fff;
+  }
+  .card {
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 20px;
+    margin-bottom: 16px;
+  }
+  .flow-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 16px;
+  }
+  @media (max-width: 768px) {
+    .flow-grid { grid-template-columns: 1fr; }
+    body { padding: 16px; }
+  }
+  .call-chain {
+    font-family: 'JetBrains Mono', 'Fira Code', monospace;
+    font-size: 13px;
+    line-height: 1.8;
+    padding: 16px;
+    background: #0d1117;
+    border-radius: 6px;
+    border: 1px solid var(--border);
+    overflow-x: auto;
+  }
+  .call-chain .arrow { color: var(--blue); }
+  .call-chain .file { color: var(--green); }
+  .call-chain .fn { color: var(--orange); }
+  .call-chain .param { color: var(--purple); }
+  .call-chain .str { color: var(--cyan); }
+  .call-chain .comment { color: var(--text-dim); font-style: italic; }
+  .badge {
+    display: inline-block;
+    padding: 2px 8px;
+    border-radius: 4px;
+    font-size: 11px;
+    font-weight: 600;
+    margin-right: 4px;
+  }
+  .badge-blue { background: #1f6feb33; color: var(--blue); border: 1px solid #1f6feb66; }
+  .badge-green { background: #3fb95033; color: var(--green); border: 1px solid #3fb95066; }
+  .badge-orange { background: #d2992233; color: var(--orange); border: 1px solid #d2992266; }
+  .badge-purple { background: #bc8cff33; color: var(--purple); border: 1px solid #bc8cff66; }
+  .data-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 13px;
+  }
+  .data-table th {
+    text-align: left;
+    padding: 8px 12px;
+    border-bottom: 2px solid var(--border);
+    color: var(--text-dim);
+    font-weight: 600;
+  }
+  .data-table td {
+    padding: 8px 12px;
+    border-bottom: 1px solid var(--border);
+    vertical-align: top;
+  }
+  .data-table tr:hover td { background: #1c2128; }
+  .mermaid-wrapper {
+    background: #fff;
+    border-radius: 8px;
+    padding: 24px;
+    margin-bottom: 16px;
+    overflow-x: auto;
+  }
+  .note {
+    background: #1f6feb11;
+    border-left: 3px solid var(--blue);
+    padding: 12px 16px;
+    border-radius: 0 6px 6px 0;
+    font-size: 13px;
+    color: var(--text-dim);
+    margin-bottom: 16px;
+  }
+  .section-label {
+    display: inline-block;
+    font-size: 12px;
+    font-weight: 600;
+    padding: 2px 10px;
+    border-radius: 10px;
+    margin-bottom: 8px;
+  }
+  .s1 { background: #1f6feb33; color: var(--blue); }
+  .s2 { background: #3fb95033; color: var(--green); }
+  .s3 { background: #d2992233; color: var(--orange); }
+  .s4 { background: #bc8cff33; color: var(--purple); }
+  .s5 { background: #f8514933; color: var(--red); }
+</style>
+</head>
+<body>
+<div class="container">
+
+<h1>Martin Medical Agent — 调用流程可视化</h1>
+<p class="subtitle">从用户输入到最终输出的完整数据流 / 2026-07-13</p>
+
+<!-- ============================== -->
+<h2>一、整体架构总览</h2>
+<div class="mermaid-wrapper">
+<div class="mermaid">
+flowchart TD
+    U["👤 用户输入"] --> M["main.py<br>chat_loop()"]
+    M --> AB["agent_builder.py<br>build_agent()"]
+    AB --> AE["agent.py<br>AgentExecutor"]
+    
+    AE --> LG["LangGraph StateGraph<br>(create_agent 内部)"]
+    
+    subgraph LG_Loop["LangGraph 推理循环"]
+        direction TB
+        LLM["DeepSeek LLM<br>ChatOpenAI"] --> DECIDE{"有 tool_calls?"}
+        DECIDE -->|"Yes"| TOOL["执行 @tool 函数"]
+        TOOL --> LLM
+        DECIDE -->|"No"| RESP["返回最终回答"]
+    end
+    
+    LG --> RESP
+    RESP --> AE
+    AE --> M
+    
+    M --> O["📋 打印输出"]
+    M --> AL["audit.py<br>AuditLogger"]
+    
+    subgraph Tools["Agent 工具集"]
+        T1["analyze_image<br>→ NoduleDetector"]
+        T2["retrieve_knowledge<br>→ ChromaDB"]
+        T3["generate_report<br>→ chain.py LCEL"]
+        T4["update_case_context<br>→ CaseContext"]
+    end
+    
+    TOOL --> Tools
+    T3 --> CHAIN["chain.py<br>LCEL 链"]
+    CHAIN --> FALLBACK["模板降级<br>(LLM失败时)"]
+    
+    style U fill:#1f6feb22,stroke:#58a6ff,stroke-width:2px
+    style LG fill:#d2992222,stroke:#d29922,stroke-width:2px
+    style Tools fill:#bc8cff22,stroke:#bc8cff,stroke-width:2px
+</div>
+</div>
+
+<!-- ============================== -->
+<h2>二、详细调用链路</h2>
+<div class="call-chain">
+<span class="comment"># ═══════════════════════════════════════════</span>
+<span class="comment"># 第 1 层：入口</span>
+<span class="comment"># ═══════════════════════════════════════════</span>
+<span class="file">main.py</span>:<span class="fn">chat_loop</span>(agent, audit_logger)
+  <span class="arrow">→</span> <span class="fn">agent.invoke</span>(<span class="param">inputs</span>={<span class="str">"input"</span>: user_input})
+  <span class="arrow">→</span> <span class="fn">response.get</span>(<span class="str">"output"</span>, <span class="str">""</span>)
+  <span class="arrow">→</span> <span class="fn">audit_logger.log_tool_call</span>(...)  <span class="comment"># 记录中间步骤</span>
+
+<span class="comment"># ═══════════════════════════════════════════</span>
+<span class="comment"># 第 2 层：AgentExecutor 编排</span>
+<span class="comment"># ═══════════════════════════════════════════</span>
+<span class="file">agent.py</span>:<span class="fn">AgentExecutor.__init__</span>(tools=[analyze_image, retrieve_knowledge, generate_report, update_case_context],
+                                      verbose=True, thread_id=<span class="str">"default"</span>)
+  <span class="arrow">→</span> llm = <span class="fn">get_chat_model</span>()  <span class="comment"># ChatOpenAI(DeepSeek)</span>
+  <span class="arrow">→</span> memory = <span class="fn">MemorySaver</span>()  <span class="comment"># LangGraph 内存检查点</span>
+  <span class="arrow">→</span> self._agent = <span class="fn">create_langchain_agent</span>(
+        model=llm, tools=tools, system_prompt=SYSTEM_PROMPT, checkpointer=memory
+      )
+
+<span class="file">agent.py</span>:<span class="fn">AgentExecutor.invoke</span>(inputs)
+  <span class="arrow">→</span> messages = [(<span class="str">"system"</span>, context_str), (<span class="str">"human"</span>, inputs[<span class="str">"input"</span>])]
+  <span class="arrow">→</span> config = {<span class="str">"configurable"</span>: {<span class="str">"thread_id"</span>: self.thread_id}}
+  <span class="arrow">→</span> result = self._agent.<span class="fn">invoke</span>({<span class="str">"messages"</span>: messages}, config=config)
+  <span class="arrow">→</span> output = self.<span class="fn">_parse_result</span>(result)  <span class="comment"># 取最后一条 AIMessage.content</span>
+  <span class="arrow">→</span> steps = self.<span class="fn">_extract_intermediate_steps</span>(result)
+  <span class="arrow">→</span> self.<span class="fn">_sync_case_context_from_steps</span>(steps)
+  <span class="arrow">→</span> <span class="fn">return</span> {<span class="str">"output"</span>: output, <span class="str">"intermediate_steps"</span>: steps}
+
+<span class="comment"># ═══════════════════════════════════════════</span>
+<span class="comment"># 第 3 层：LangGraph 内部循环</span>
+<span class="comment"># ═══════════════════════════════════════════</span>
+<span class="file">langchain.agents</span>:<span class="fn">create_agent</span>(model, tools, prompt, checkpointer)
+  <span class="arrow">→</span> <span class="fn">llm.bind_tools</span>(tools)  <span class="comment"># 将工具 schema 绑定到 LLM</span>
+  <span class="arrow">→</span> <span class="fn">StateGraph</span>(MessagesState)  <span class="comment"># 构建状态图</span>
+      ├─ 节点: <span class="str">"llm"</span>  → 调用 bound LLM → AIMessage(含 tool_calls)
+      ├─ 节点: <span class="str">"tools"</span> → 执行 tool_calls → ToolMessage
+      └─ 边: 条件分支 (有 tool_calls → tools, 否则 → 结束)
+  <span class="arrow">→</span> graph.<span class="fn">compile</span>(checkpointer=memory)  <span class="comment"># 编译为可运行对象</span>
+
+<span class="comment"># ═══════════════════════════════════════════</span>
+<span class="comment"># 第 4 层：Tool 调用</span>
+<span class="comment"># ═══════════════════════════════════════════</span>
+<span class="file">tools.py</span>:<span class="fn">analyze_image</span>(<span class="param">image_path</span>=<span class="str">"/path/to/ct.nii.gz"</span>, <span class="param">reasoning</span>=<span class="str">"..."</span>)
+  <span class="arrow">→</span> NoduleDetector.<span class="fn">detect</span>(image_path)
+  <span class="arrow">→</span> <span class="fn">return</span> json.dumps({<span class="str">"image"</span>: ..., <span class="str">"total_nodules"</span>: N, <span class="str">"nodules"</span>: [...]})
+
+<span class="file">tools.py</span>:<span class="fn">retrieve_knowledge</span>(<span class="param">detection_context</span>=json_str, <span class="param">reasoning</span>=<span class="str">"..."</span>)
+  <span class="arrow">→</span> search_by_detection(result_dict, top_k=5, threshold=0.7)
+  <span class="arrow">→</span> format_results(results) → str
+  <span class="arrow">→</span> <span class="fn">return</span> knowledge_text
+
+<span class="file">tools.py</span>:<span class="fn">generate_report</span>(<span class="param">detection_result</span>=json_str, <span class="param">report_type</span>=<span class="str">"detailed"</span>, ...)
+  <span class="arrow">→</span> json.loads(detection_result) → result_dict
+  <span class="arrow">→</span> _normalize_detection_result(result_dict)
+  <span class="arrow">→</span> chain.<span class="fn">generate_report</span>(result_dict, report_type, language, case_context)
+      ├─ 一级: create_diagnosis_chain().invoke(...)  <span class="comment"># LCEL 链</span>
+      ├─ 二级: _generate_template_report(...)        <span class="comment"># 模板降级</span>
+      └─ 三级: 返回错误信息
+  <span class="arrow">→</span> <span class="fn">return</span> report_markdown
+
+<span class="file">tools.py</span>:<span class="fn">update_case_context</span>(<span class="param">user_input</span>=<span class="str">"患者55岁男性"</span>, <span class="param">reasoning</span>=<span class="str">"..."</span>)
+  <span class="arrow">→</span> CaseContext.<span class="fn">extract_patient_info</span>(user_input)  <span class="comment"># LLM 提取</span>
+  <span class="arrow">→</span> CaseContext.<span class="fn">update</span>(patient_info)  <span class="comment"># 更新全局上下文</span>
+  <span class="arrow">→</span> <span class="fn">return</span> <span class="str">"已更新病例上下文"</span>
+
+<span class="comment"># ═══════════════════════════════════════════</span>
+<span class="comment"># 第 5 层：LCEL 链 (chain.py)</span>
+<span class="comment"># ═══════════════════════════════════════════</span>
+<span class="file">chain.py</span>:<span class="fn">generate_report</span>(detection_result, report_type, language, case_context)
+  <span class="arrow">→</span> chain_input = {
+      <span class="str">"system_prompt"</span>: _get_system_prompt(report_type),
+      <span class="str">"detection_result"</span>: detection_result,
+      <span class="str">"report_type"</span>: report_type,
+      <span class="str">"case_context"</span>: case_context,
+    }
+  <span class="arrow">→</span> chain = <span class="fn">create_diagnosis_chain</span>()
+  <span class="arrow">→</span> chain.<span class="fn">invoke</span>(chain_input)
+      ┌─ RunnablePassthrough.assign(
+      │    knowledge_context → _build_knowledge_context(...)  <span class="comment"># 并行检索知识库</span>
+      │    nodules_detail   → _build_nodules_detail(...)      <span class="comment"># 并行格式化结节</span>
+      │    patient_info     → _build_patient_info(...)        <span class="comment"># 并行构建患者信息</span>
+      │  )
+      ├─ diagnosis_prompt (ChatPromptTemplate)
+      ├─ model (ChatOpenAI DeepSeek)
+      └─ StrOutputParser()
+  <span class="arrow">→</span> <span class="fn">return</span> report
+</div>
+
+<!-- ============================== -->
+<h2>三、数据传递全景</h2>
+
+<div class="flow-grid">
+
+<div class="card">
+<span class="section-label s1">入口层</span>
+<h3 style="margin-bottom:8px;font-size:14px;">main.py → agent.invoke()</h3>
+<table class="data-table">
+<tr><th>参数</th><th>值</th></tr>
+<tr><td><code>inputs</code></td><td><code>{"input": "用户输入的文本"}</code></td></tr>
+<tr><td><code>返回值</code></td><td>
+<pre style="font-size:12px;background:#0d1117;padding:8px;border-radius:4px;">{
+  "output": "最终回答文本",
+  "intermediate_steps": [
+    (AgentAction, str),
+    ...
+  ]
+}</pre>
+</td></tr>
+</table>
+</div>
+
+<div class="card">
+<span class="section-label s2">编排层</span>
+<h3 style="margin-bottom:8px;font-size:14px;">AgentExecutor → LangGraph</h3>
+<table class="data-table">
+<tr><th>参数</th><th>值</th></tr>
+<tr><td><code>messages</code></td><td><code>[("system", context_str), ("human", user_input)]</code></td></tr>
+<tr><td><code>config</code></td><td><code>{"configurable": {"thread_id": "default"}}</code></td></tr>
+<tr><td><code>Result</code></td><td>
+<code>{"messages": [SystemMessage, HumanMessage, AIMessage, ToolMessage, ...]}</code>
+</td></tr>
+</table>
+</div>
+
+<div class="card">
+<span class="section-label s3">工具层</span>
+<h3 style="margin-bottom:8px;font-size:14px;">LLM → @tool 函数</h3>
+<table class="data-table">
+<tr><th>Tool</th><th>参数</th><th>返回值</th></tr>
+<tr>
+  <td><code>analyze_image</code></td>
+  <td><code>image_path: str</code><br><code>reasoning: str</code></td>
+  <td>检测结果 JSON 字符串</td>
+</tr>
+<tr>
+  <td><code>retrieve_knowledge</code></td>
+  <td><code>detection_context: str</code><br><code>reasoning: str</code></td>
+  <td>知识库文本</td>
+</tr>
+<tr>
+  <td><code>generate_report</code></td>
+  <td><code>detection_result: str</code><br><code>report_type: str</code><br><code>language: str</code><br><code>case_context: str</code><br><code>reasoning: str</code></td>
+  <td>Markdown 报告</td>
+</tr>
+<tr>
+  <td><code>update_case_context</code></td>
+  <td><code>user_input: str</code><br><code>reasoning: str</code></td>
+  <td>确认消息字符串</td>
+</tr>
+</table>
+</div>
+
+<div class="card">
+<span class="section-label s4">记忆层</span>
+<h3 style="margin-bottom:8px;font-size:14px;">MemorySaver 存储结构</h3>
+<table class="data-table">
+<tr><th>Key</th><th>Value</th></tr>
+<tr><td><code>(thread_id, checkpoint_id)</code></td><td>完整 <code>messages</code> 列表 + Agent 状态</td></tr>
+<tr><td colspan="2" style="font-size:12px;color:var(--text-dim)">
+同一 thread_id → 同一个对话历史<br>
+新消息追加到已有 messages 列表尾部
+</td></tr>
+</table>
+</div>
+
+</div>
+
+<!-- ============================== -->
+<h2>四、LangGraph 推理循环</h2>
+<div class="mermaid-wrapper">
+<div class="mermaid">
+sequenceDiagram
+    participant U as 用户
+    participant M as main.py
+    participant AE as AgentExecutor
+    participant LG as LangGraph
+    participant LLM as DeepSeek LLM
+    participant T as @tool 函数
+
+    U->>M: 输入文本
+    M->>AE: invoke({"input": str})
+    AE->>AE: 构建 messages + config(thread_id)
+    AE->>LG: invoke({"messages": [...]}, config)
+    
+    loop 推理循环
+        LG->>LLM: 调用 LLM
+        LLM-->>LG: AIMessage (含/不含 tool_calls)
+        alt 有 tool_calls
+            LG->>T: 执行工具 (解析 args)
+            T-->>LG: ToolMessage (工具返回结果)
+        else 无 tool_calls
+            LG-->>AE: 最终回答
+        end
+    end
+    
+    AE->>AE: _parse_result() 提取 output
+    AE->>AE: _extract_intermediate_steps()
+    AE->>AE: _sync_case_context_from_steps()
+    AE-->>M: {"output": str, "intermediate_steps": [...]}
+    
+    M->>M: 打印输出
+    M->>M: audit_logger.log_tool_call()
+</div>
+</div>
+
+<!-- ============================== -->
+<h2>五、LCEL 链内部数据流</h2>
+<div class="mermaid-wrapper">
+<div class="mermaid">
+flowchart LR
+    IN["chain_input<br>{detection_result, report_type, case_context}"] --> ASSIGN
+    
+    subgraph ASSIGN["RunnablePassthrough.assign (并行注入)"]
+        direction TB
+        K["_build_knowledge_context<br>→ ChromaDB 检索"]
+        N["_build_nodules_detail<br>→ 格式化结节数据"]
+        P["_build_patient_info<br>→ 从 CaseContext 提取"]
+    end
+    
+    ASSIGN --> PROMPT["ChatPromptTemplate<br>system_prompt + 患者信息 + 结节数据 + 知识库"]
+    PROMPT --> MODEL["ChatOpenAI (DeepSeek)"]
+    MODEL --> PARSE["StrOutputParser"]
+    PARSE --> OUT["📄 Markdown 报告"]
+    
+    OUT --> FALLBACK{"LLM 成功?"}
+    FALLBACK -->|"Yes"| DONE["✅ 返回报告"]
+    FALLBACK -->|"No / Exception"| TEMPLATE["_generate_template_report<br>模板降级"]
+    TEMPLATE --> DONE
+    
+    style ASSIGN fill:#1f6feb22,stroke:#58a6ff
+    style FALLBACK fill:#d2992222,stroke:#d29922
+</div>
+</div>
+
+<!-- ============================== -->
+<h2>六、关键设计要点</h2>
+
+<div class="flow-grid">
+
+<div class="card">
+<h3 style="margin-bottom:8px;font-size:14px;">🔄 三级降级策略</h3>
+<table class="data-table">
+<tr><th>级别</th><th>说明</th></tr>
+<tr><td><span class="badge badge-green">一级</span></td><td>LCEL 链 → LLM + 知识库检索生成报告</td></tr>
+<tr><td><span class="badge badge-orange">二级</span></td><td>模板生成 → 纯 f-string 拼接，不依赖 LLM</td></tr>
+<tr><td><span class="badge badge-red">三级</span></td><td>基本错误信息 → 仅返回患者ID和结节数量</td></tr>
+</table>
+</div>
+
+<div class="card">
+<h3 style="margin-bottom:8px;font-size:14px;">📎 reasoning 审计参数</h3>
+<p style="font-size:13px;color:var(--text-dim);">
+每个工具函数都有一个 <code>reasoning</code> 参数，由 LLM 自动填充思维链过程。<br><br>
+不参与业务逻辑，仅用于：
+</p>
+<ul style="font-size:13px;color:var(--text-dim);padding-left:20px;">
+  <li>审计日志记录</li>
+  <li>AgentLoggingHandler 回调输出</li>
+  <li>医疗决策可追溯</li>
+</ul>
+</div>
+
+<div class="card">
+<h3 style="margin-bottom:8px;font-size:14px;">🏷️ thread_id 统一标识</h3>
+<p style="font-size:13px;color:var(--text-dim);">
+同一个 <code>thread_id</code> 贯穿三个子系统：
+</p>
+<table class="data-table">
+<tr><th>组件</th><th>作用</th></tr>
+<tr><td>MemorySaver</td><td>对话历史分片 key</td></tr>
+<tr><td>CaseContext</td><td>病例上下文缓存 key</td></tr>
+<tr><td>AuditLogger</td><td>审计日志文件名标识</td></tr>
+</table>
+</div>
+
+<div class="card">
+<h3 style="margin-bottom:8px;font-size:14px;">📦 字段归一化</h3>
+<p style="font-size:13px;color:var(--text-dim);">
+<code>_normalize_detection_result()</code> 兼容 LLM 可能产生的不同 JSON key 命名习惯：
+</p>
+<div style="font-size:12px;background:#0d1117;padding:8px;border-radius:4px;color:var(--cyan);">
+diameter_mm → diameter<br>
+confidence → score<br>
+location_x → center.x<br>
+...</div>
+</div>
+
+</div>
+
+<!-- ============================== -->
+<h2>七、文件依赖关系</h2>
+<div class="mermaid-wrapper">
+<div class="mermaid">
+flowchart TB
+    subgraph Entry["入口"]
+        main["main.py"]
+        main_["__main__.py"]
+    end
+    
+    subgraph Agent["Agent 层"]
+        ab["agent_builder.py"]
+        ag["agent.py<br>AgentExecutor + AgentLoggingHandler"]
+        tools["tools.py<br>4 个 @tool"]
+        prompt["prompt.py<br>System Prompt"]
+        cc["case_context.py<br>CaseContext"]
+        audit["audit.py<br>AuditLogger"]
+    end
+    
+    subgraph LLM_Layer["LLM 层"]
+        cm["chat_model.py<br>ChatOpenAI(DeepSeek)"]
+        chain["chain.py<br>LCEL + 模板降级"]
+        dc["deepseek_client.py"]
+    end
+    
+    subgraph RAG["RAG 层"]
+        dl["document_loader.py"]
+        ts["text_splitter.py"]
+        emb["embeddings.py"]
+        vs["vector_store.py<br>ChromaDB"]
+        ret["retriever.py"]
+    end
+    
+    subgraph Vision["视觉层"]
+        nd["nodule_detector.py<br>MONAI"]
+    end
+    
+    subgraph Utils["工具层"]
+        cfg["config.py"]
+        logger["logger.py"]
+        rm["result_manager.py"]
+    end
+    
+    main --> ab
+    main_ --> ag
+    ab --> ag
+    ag --> cm
+    ag --> tools
+    ag --> prompt
+    ag --> audit
+    ag --> cc
+    
+    tools --> chain
+    tools --> nd
+    tools --> ret
+    
+    chain --> cm
+    chain --> ret
+    
+    ret --> vs
+    ret --> emb
+    vs --> emb
+    
+    dl --> ts
+    ts --> emb
+    
+    cm --> cfg
+    chain --> cfg
+    tools --> cfg
+    
+    dc --> cm
+    
+    style Entry fill:#1f6feb22,stroke:#58a6ff
+    style Agent fill:#3fb95022,stroke:#3fb950
+    style LLM_Layer fill:#d2992222,stroke:#d29922
+    style RAG fill:#bc8cff22,stroke:#bc8cff
+    style Vision fill:#f8514922,stroke:#f85149
+    style Utils fill:#39d2c022,stroke:#39d2c0
+</div>
+</div>
+
+</div>
+
+<script>
+mermaid.initialize({
+  theme: 'base',
+  themeVariables: {
+    background: '#ffffff',
+    primaryColor: '#1f6feb',
+    primaryBorderColor: '#58a6ff',
+    primaryTextColor: '#000000',
+    lineColor: '#30363d',
+    secondaryColor: '#3fb950',
+    tertiaryColor: '#d29922',
+    fontSize: '14px',
+    fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif',
+  },
+  sequence: { showSequenceNumbers: true }
+});
+</script>
+</body>
+</html>

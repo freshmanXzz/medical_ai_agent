@@ -145,7 +145,7 @@ def test_case_generator_with_date_dir():
     print("测试病例生成器日期目录保存")
     print("=" * 60)
     
-    from martin.llm import CaseGenerator
+    from martin.llm.chain import generate_report
     
     # 创建测试数据
     test_result = {
@@ -162,14 +162,13 @@ def test_case_generator_with_date_dir():
         "total_nodules": 1
     }
     
-    # 初始化生成器
-    generator = CaseGenerator()
-    
     # 生成报告
-    report = generator.generate_case(test_result, "detailed", "zh")
+    report = generate_report(test_result, report_type="detailed")
     
-    # 保存报告（使用日期目录）
-    saved_path = generator.save_report(report)
+    # 保存报告
+    from martin.utils.result_manager import get_result_manager
+    manager = get_result_manager()
+    saved_path = manager.save_report(report)
     print(f"报告已保存到: {saved_path}")
     
     # 验证保存路径包含日期目录
@@ -177,11 +176,8 @@ def test_case_generator_with_date_dir():
     assert today in saved_path, f"保存路径应该包含今天的日期: {today}"
     
     # 测试便捷函数
-    report2, path2 = CaseGenerator.generate_and_save(
-        test_result,
-        report_type="brief",
-        language="en"
-    )
+    report2 = generate_report(test_result, report_type="brief")
+    path2 = manager.save_report(report2)
     print(f"便捷函数报告已保存到: {path2}")
     
     print("\n" + "=" * 60)

@@ -4,12 +4,14 @@
 封装为 Agent 可调用的 Tool，每个工具均返回格式化的字符串。
 """
 
+import contextvars
 import json
 import logging
 from typing import Dict
 
 from langchain_core.tools import tool
 
+from martin.agent.case_context import CaseContext
 from martin.vision.nodule_detector import NoduleDetector
 from martin.llm.chain import (
     _generate_template_report,
@@ -19,6 +21,44 @@ from martin.rag.retriever import format_results, search_by_detection
 from martin.rag.vector_store import get_vector_store
 
 logger = logging.getLogger(__name__)
+
+# 会话级病例上下文，使用 ContextVar 保证同一线程/协程内状态隔离。
+# 默认实例作为未设置会话上下文时的兜底回退。
+_current_case_context: CaseContext = CaseContext()
+_case_context_var: contextvars.ContextVar[CaseContext] = contextvars.ContextVar(
+    "case_context", default=_current_case_context
+)
+
+
+def get_case_context() -> CaseContext:
+    """获取当前会话的病例上下文。
+
+    Returns:
+        当前会话使用的 ``CaseContext`` 实例；
+        若当前上下文未显式设置，则返回模块级默认实例。
+    """
+    return _case_context_var.get()
+
+
+def set_case_context(case_context: CaseContext):
+    """替换当前会话的病例上下文。
+
+    Args:
+        case_context: 新的 ``CaseContext`` 实例。
+
+    Returns:
+        ``contextvars.Token``，用于后续 ``reset_case_context`` 恢复上下文。
+    """
+    return _case_context_var.set(case_context)
+
+
+def reset_case_context(token) -> None:
+    """根据 token 恢复之前的病例上下文。
+
+    Args:
+        token: ``set_case_context`` 返回的 ``contextvars.Token``。
+    """
+    _case_context_var.reset(token)
 
 
 def _normalize_detection_result(result: Dict) -> None:
@@ -107,6 +147,13 @@ def analyze_image(image_path: str, reasoning: str = "") -> str:
         logger.error("图像检测失败: %s", e, exc_info=True)
         return f"错误: 图像分析失败: {e}"
 
+    # 将检测结果同步到当前会话的病例上下文
+    try:
+        case_context = get_case_context()
+        case_context.update_from_detection(result)
+    except Exception as e:
+        logger.warning("同步检测结果到病例上下文失败: %s", e)
+
     nodules = result.get("nodules", [])
     total = result.get("total_nodules", 0)
     image_name = result.get("image", image_path)
@@ -180,8 +227,53 @@ def retrieve_knowledge(detection_context: str, reasoning: str = "") -> str:
         return f"错误: 知识库检索失败: {e}"
 
     context = format_results(results)
+
+    # 将检索结果摘要同步到当前会话的病例上下文
+    try:
+        get_case_context().set_knowledge_summary(context[:2000])
+    except Exception as e:
+        logger.warning("同步知识摘要到病例上下文失败: %s", e)
+
     logger.info("检索到 %d 条相关知识", len(results))
     return context
+
+
+@tool
+def update_case_context(user_input: str, reasoning: str = "") -> str:
+    """根据用户自然语言输入更新当前会话的病例上下文。
+
+    从输入中抽取年龄、性别、吸烟史、家族史等患者信息并更新到当前
+    ``CaseContext``，同时将原始输入追加为临床备注。
+
+    Args:
+        user_input: 包含患者信息的自然语言文本。
+        reasoning: 推理过程记录（不参与业务逻辑）。
+
+    Returns:
+        更新摘要，仅列出实际识别到的患者信息字段。
+    """
+    logger.info("调用 update_case_context 工具，用户输入: %s", user_input)
+
+    case_context = get_case_context()
+    updates = CaseContext.extract_patient_info(user_input)
+    case_context.update_patient_info(updates)
+    case_context.add_clinical_note(user_input)
+
+    if not updates:
+        return "未从输入中识别到新的患者信息，已记录临床备注。"
+
+    field_labels = {
+        "age": ("年龄", " 岁"),
+        "gender": ("性别", ""),
+        "smoking_history": ("吸烟史", ""),
+        "family_history": ("家族史", ""),
+    }
+    items = []
+    for key, value in updates.items():
+        label, suffix = field_labels.get(key, (key, ""))
+        items.append(f"{label} {value}{suffix}")
+
+    return "已更新病例信息：" + "，".join(items) + "。"
 
 
 @tool
@@ -189,6 +281,7 @@ def generate_report(
     detection_result: str,
     report_type: str = "detailed",
     language: str = "zh",
+    case_context: str = "{}",
     reasoning: str = "",
 ) -> str:
     """根据检测结果和知识库资料生成结构化病例报告。
@@ -197,6 +290,7 @@ def generate_report(
         detection_result: 检测结果的 JSON 格式字符串。
         report_type: 报告类型，可选 brief / detailed / research，默认为 detailed。
         language: 报告语言，zh（中文）或 en（英文），默认为 zh。
+        case_context: 病例上下文的 JSON 格式字符串，默认为空字典字符串。
         reasoning: 推理过程记录（不参与业务逻辑）。
 
     Returns:
@@ -215,6 +309,15 @@ def generate_report(
         logger.warning("无法解析检测结果 JSON")
         return "报告生成失败：检测结果格式无效，请提供有效的 JSON 格式检测结果。"
 
+    # 解析病例上下文 JSON
+    case_context_dict: Dict = {}
+    if case_context:
+        try:
+            case_context_dict = json.loads(case_context)
+        except (json.JSONDecodeError, TypeError):
+            logger.warning("无法解析病例上下文 JSON，视为空上下文")
+            case_context_dict = {}
+
     # 归一化字段名：兼容 Agent 自动构建 JSON 时的不同命名习惯
     _normalize_detection_result(result_dict)
 
@@ -224,6 +327,7 @@ def generate_report(
             result_dict,
             report_type=report_type,
             language=language,
+            case_context=case_context_dict,
         )
         logger.info("LLM 报告生成完成")
         return report

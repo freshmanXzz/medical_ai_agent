@@ -20,8 +20,15 @@ from langchain_core.messages import AIMessage, SystemMessage, ToolMessage
 from langchain_core.tools import BaseTool
 from langgraph.checkpoint.memory import MemorySaver
 
-from martin.agent import analyze_image, retrieve_knowledge, generate_report
+from martin.agent import (
+    analyze_image,
+    generate_report,
+    retrieve_knowledge,
+    update_case_context,
+)
 from martin.agent.prompt import SYSTEM_PROMPT
+from martin.agent.case_context import CaseContext
+from martin.agent.tools import reset_case_context, set_case_context
 from martin.llm.chat_model import get_chat_model
 
 logger = logging.getLogger(__name__)
@@ -180,7 +187,11 @@ class AgentExecutor:
 
     使用 create_agent + MemorySaver 构建，
     自动保持多轮对话记忆，底层走 DeepSeek 原生 Function Calling。
+    支持在同一会话（thread_id）的多个实例间共享病例上下文。
     """
+
+    # 类级别缓存，用于同一线程 ID 的多个 AgentExecutor 实例共享病例上下文
+    _context_cache: Dict[str, CaseContext] = {}
 
     def __init__(
         self,
@@ -193,6 +204,11 @@ class AgentExecutor:
         self.handle_parsing_errors = True
         self.thread_id = thread_id or "default"
         self._thinking_logger = _get_thinking_logger()
+
+        # 在同一线程 ID 的多个实例间共享病例上下文
+        if self.thread_id not in AgentExecutor._context_cache:
+            AgentExecutor._context_cache[self.thread_id] = CaseContext()
+        self.case_context = AgentExecutor._context_cache[self.thread_id]
 
         llm = get_chat_model()
 
@@ -224,6 +240,19 @@ class AgentExecutor:
         """
         user_input = inputs.get("input", "")
 
+        # 构造消息：若存在病例上下文则先注入上下文摘要
+        context_str = self.case_context.to_context_string(max_nodules=5)
+        if context_str:
+            messages = [
+                (
+                    "human",
+                    f"【当前病例上下文】\n{context_str}\n\n请基于以上病例信息理解后续问题。",
+                ),
+                ("human", user_input),
+            ]
+        else:
+            messages = [("human", user_input)]
+
         # langgraph 的 thread_id 配置
         config = {"configurable": {"thread_id": self.thread_id}}
 
@@ -231,10 +260,11 @@ class AgentExecutor:
         if self.verbose:
             config["callbacks"] = [AgentLoggingHandler()]
 
-        # 执行 agent
+        # 设置当前会话的病例上下文，供工具调用时使用
+        token = set_case_context(self.case_context)
         try:
             result = self._agent.invoke(
-                {"messages": [("human", user_input)]},
+                {"messages": messages},
                 config=config,
             )
         except Exception as e:
@@ -243,9 +273,39 @@ class AgentExecutor:
                 "output": f"错误: Agent 执行失败: {e}",
                 "intermediate_steps": [],
             }
+        finally:
+            reset_case_context(token)
 
         all_messages = result.get("messages", [])
-        return self._parse_result(all_messages)
+        parsed_result = self._parse_result(all_messages)
+
+        # 根据工具执行结果同步病例上下文
+        self._sync_case_context_from_steps(
+            parsed_result.get("intermediate_steps", [])
+        )
+
+        return parsed_result
+
+    def _sync_case_context_from_steps(
+        self, intermediate_steps: List[Tuple[AgentAction, str]]
+    ) -> None:
+        """根据 Agent 中间步骤同步病例上下文。
+
+        Args:
+            intermediate_steps: AgentAction 与工具输出的元组列表。
+        """
+        try:
+            for action, output in intermediate_steps:
+                tool_name = getattr(action, "tool", "")
+                output_str = str(output)
+                is_error = "错误:" in output_str or "未初始化" in output_str
+
+                if tool_name == "retrieve_knowledge" and not is_error:
+                    self.case_context.set_knowledge_summary(output_str[:2000])
+                elif tool_name == "generate_report" and not is_error:
+                    self.case_context.add_clinical_note("已生成病例报告。")
+        except Exception as e:
+            logger.warning("从 Agent 结果同步病例上下文失败: %s", e)
 
     def _parse_result(self, messages: List) -> Dict[str, Any]:
         """从完整消息列表中解析 output 和 intermediate_steps。"""
@@ -301,5 +361,10 @@ def create_agent(
         AgentExecutor 实例。
     """
     if tools is None:
-        tools = [analyze_image, retrieve_knowledge, generate_report]
+        tools = [
+            analyze_image,
+            retrieve_knowledge,
+            generate_report,
+            update_case_context,
+        ]
     return AgentExecutor(tools=tools, verbose=verbose, thread_id=thread_id)

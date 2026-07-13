@@ -82,14 +82,12 @@ def test_rag_full_pipeline():
     # 步骤3: RAG增强报告生成
     logger.info("步骤 3/3: RAG增强病例报告生成")
     
-    from martin.llm import CaseGenerator
+    from martin.llm.chain import generate_report
     
-    # 创建报告生成器，启用RAG
-    generator = CaseGenerator(use_rag=True)
     logger.info("生成RAG增强报告...")
     
     # 生成RAG增强报告
-    report = generator.generate_with_rag(result, "detailed", retrieved_knowledge)
+    report = generate_report(result, report_type="detailed")
     
     logger.info("RAG增强病例报告:")
     logger.info("=" * 60)

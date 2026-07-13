@@ -8,8 +8,7 @@
 """
 
 from martin.llm.deepseek_client import DeepSeekClient
-from martin.llm.case_generator import CaseGenerator
 from martin.llm.chat_model import get_chat_model
 from martin.llm.chain import generate_report
 
-__all__ = ["DeepSeekClient", "CaseGenerator", "get_chat_model", "generate_report"]
+__all__ = ["DeepSeekClient", "get_chat_model", "generate_report"]
