@@ -178,13 +178,12 @@ python -m martin case -i results/detection.json -o report.md --type detailed
 
 ## 📚 Documentation
 
-```
-docs/
-├── ARCHITECTURE.md         系统架构设计
-├── DEVELOPMENT.md          开发过程与技术总结
-├── LEARNING_SUMMARY.md     学习笔记与心得体会
-└── ROADMAP.md              未来规划
-```
+| 文档 | 说明 |
+|------|------|
+| [🏗 Architecture](docs/ARCHITECTURE.md) | 系统架构设计、模块职责、数据流 |
+| [🛠 Development](docs/DEVELOPMENT.md) | 开发过程、技术决策、踩坑记录 |
+| [📚 Learning Summary](docs/LEARNING_SUMMARY.md) | 学习笔记与心得体会 |
+| [🗺 Roadmap](docs/ROADMAP.md) | 未来规划与演进路线 |
 
 ---
 
