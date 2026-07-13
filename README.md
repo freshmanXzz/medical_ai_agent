@@ -184,6 +184,7 @@ python -m martin case -i results/detection.json -o report.md --type detailed
 | [🛠 Development](docs/DEVELOPMENT.md) | 开发过程、技术决策、踩坑记录 |
 | [📚 Learning Summary](docs/LEARNING_SUMMARY.md) | 学习笔记与心得体会 |
 | [🗺 Roadmap](docs/ROADMAP.md) | 未来规划与演进路线 |
+| [🌐 Agent Flow](docs/agent_flow.html) | 交互式 Agent 调用流程可视化（浏览器打开） |
 
 ---
 
