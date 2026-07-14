@@ -39,6 +39,10 @@ data/test_chroma_db/
 # 排除审计日志
 audit/
 
+# LangGraph 会话持久化数据库
+data/sessions.sqlite
+data/sessions.sqlite-*
+
 # 排除日志文件
 *.log
 *.out

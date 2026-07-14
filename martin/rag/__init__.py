@@ -10,7 +10,7 @@ from martin.rag.document_loader import load_knowledge_base, load_knowledge_direc
 from martin.rag.text_splitter import split_documents
 from martin.rag.embeddings import get_embeddings
 from martin.rag.vector_store import create_vector_store, get_vector_store, get_retriever
-from martin.rag.retriever import search_by_detection, format_results
+from martin.rag.retriever import search_by_detection, search_by_query, format_results
 
 __all__ = [
     "load_knowledge_base",
@@ -21,5 +21,6 @@ __all__ = [
     "get_vector_store",
     "get_retriever",
     "search_by_detection",
+    "search_by_query",
     "format_results",
 ]

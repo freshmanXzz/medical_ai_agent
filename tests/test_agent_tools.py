@@ -132,6 +132,51 @@ class TestRetrieveKnowledgeTool:
         )
         assert isinstance(result, str)
 
+    @patch("martin.agent.tools.get_vector_store")
+    @patch("martin.agent.tools.search_by_detection")
+    @patch("martin.agent.tools.format_results")
+    def test_retrieve_knowledge_normalizes_chinese_detection_keys(
+        self, mock_format, mock_search, mock_get_store
+    ):
+        """审计日志中的中文字段应被转换后再交给检索器。"""
+        mock_get_store.return_value = MagicMock()
+        mock_search.return_value = []
+        mock_format.return_value = "检索结果"
+
+        from martin.agent.tools import retrieve_knowledge
+
+        detection_json = json.dumps(
+            {
+                "结节总数": 6,
+                "结节列表": [
+                    {
+                        "编号": 1,
+                        "最大直径_mm": 5.02,
+                        "置信度": 0.985,
+                        "位置": {"x": -102.07, "y": 17.21, "z": -168.28},
+                    }
+                ],
+            },
+            ensure_ascii=False,
+        )
+
+        _unwrap(retrieve_knowledge)(detection_context=detection_json)
+
+        normalized = mock_search.call_args.args[0]
+        assert normalized["total_nodules"] == 6
+        assert normalized["nodules"] == [
+            {
+                "编号": 1,
+                "最大直径_mm": 5.02,
+                "置信度": 0.985,
+                "位置": {"x": -102.07, "y": 17.21, "z": -168.28},
+                "index": 1,
+                "diameter": 5.02,
+                "score": 0.985,
+                "center": {"x": -102.07, "y": 17.21, "z": -168.28},
+            }
+        ]
+
 
 class TestGenerateReportTool:
     """测试 generate_report 工具。"""
@@ -243,6 +288,31 @@ class TestGenerateReportTool:
 
         args, kwargs = mock_chain.call_args
         assert kwargs.get("case_context") == {}
+
+    @patch("martin.agent.tools.chain_generate_report")
+    def test_generate_report_normalizes_chinese_detection_keys(self, mock_chain):
+        """中文检测字段不能被报告链误判为无结节。"""
+        mock_chain.return_value = "# 报告"
+
+        from martin.agent.tools import generate_report
+
+        detection_json = json.dumps(
+            {
+                "结节总数": 1,
+                "结节列表": [
+                    {"编号": 1, "最大直径_mm": 5.02, "置信度": 0.985}
+                ],
+            },
+            ensure_ascii=False,
+        )
+
+        _unwrap(generate_report)(detection_result=detection_json)
+
+        normalized = mock_chain.call_args.args[0]
+        assert normalized["total_nodules"] == 1
+        assert len(normalized["nodules"]) == 1
+        assert normalized["nodules"][0]["diameter"] == 5.02
+        assert normalized["nodules"][0]["score"] == 0.985
 
 
 class TestUpdateCaseContextTool:

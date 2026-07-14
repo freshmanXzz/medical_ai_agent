@@ -17,7 +17,7 @@ from martin.llm.chain import (
     _generate_template_report,
     generate_report as chain_generate_report,
 )
-from martin.rag.retriever import format_results, search_by_detection
+from martin.rag.retriever import format_results, search_by_detection, search_by_query
 from martin.rag.vector_store import get_vector_store
 
 logger = logging.getLogger(__name__)
@@ -66,44 +66,66 @@ def _normalize_detection_result(result: Dict) -> None:
 
     将 Agent 可能使用的不同字段名映射到 chain.py 期望的标准格式（就地修改）。
     支持以下别名：
-    - total_count / total_nodules_found → total_nodules
-    - confidence → score
-    - diameter_mm → diameter
+    - total_count / total_nodules_found / 结节总数 → total_nodules
+    - 结节列表 → nodules
+    - confidence / 置信度 → score
+    - diameter_mm / 最大直径_mm → diameter
+    - id / 编号 → index
     - nodule_1, nodule_2... → 合并为 nodules list
     """
     # 归一化 total_nodules
     if "total_nodules" not in result:
-        for alias in ("total_count", "total_nodules_found", "nodule_count"):
+        for alias in (
+            "total_count",
+            "total_nodules_found",
+            "nodule_count",
+            "结节总数",
+            "结节数量",
+        ):
             if alias in result:
                 result["total_nodules"] = result[alias]
                 break
 
     # 归一化 nodules list
     if "nodules" not in result or not result.get("nodules"):
+        for alias in ("结节列表",):
+            if result.get(alias):
+                result["nodules"] = result[alias]
+                break
+
         # 尝试从 nodule_1, nodule_2, ... 单键重建
         nodule_list = []
-        i = 1
-        while f"nodule_{i}" in result:
-            nodule_list.append(result[f"nodule_{i}"])
-            i += 1
-        if nodule_list:
-            result["nodules"] = nodule_list
-            if "total_nodules" not in result:
-                result["total_nodules"] = len(nodule_list)
-        else:
-            result.setdefault("nodules", [])
+        if not result.get("nodules"):
+            i = 1
+            while f"nodule_{i}" in result:
+                nodule_list.append(result[f"nodule_{i}"])
+                i += 1
+            if nodule_list:
+                result["nodules"] = nodule_list
+            else:
+                result.setdefault("nodules", [])
 
     # 确保 total_nodules 存在
-    result.setdefault("total_nodules", 0)
+    result.setdefault("total_nodules", len(result.get("nodules", [])))
 
     # 归一化每个结节的字段
     for nodule in result.get("nodules", []):
         # confidence -> score
-        if "score" not in nodule and "confidence" in nodule:
-            nodule["score"] = nodule["confidence"]
+        if "score" not in nodule:
+            for alias in ("confidence", "置信度"):
+                if alias in nodule:
+                    nodule["score"] = nodule[alias]
+                    break
         # diameter_mm / max_diameter_mm -> diameter
         if "diameter" not in nodule:
-            for alias in ("max_diameter_mm", "diameter_mm", "max_diameter"):
+            for alias in (
+                "max_diameter_mm",
+                "diameter_mm",
+                "max_diameter",
+                "最大直径_mm",
+                "直径_mm",
+                "最大直径",
+            ):
                 if alias in nodule:
                     nodule["diameter"] = nodule[alias]
                     break
@@ -111,8 +133,13 @@ def _normalize_detection_result(result: Dict) -> None:
         if "score" not in nodule and "confidence_percent" in nodule:
             nodule["score"] = nodule["confidence_percent"] / 100.0
         # id -> index（模型输出用 id 而非 index）
-        if "index" not in nodule and "id" in nodule:
-            nodule["index"] = nodule["id"]
+        if "index" not in nodule:
+            for alias in ("id", "编号"):
+                if alias in nodule:
+                    nodule["index"] = nodule[alias]
+                    break
+        if "center" not in nodule and "位置" in nodule:
+            nodule["center"] = nodule["位置"]
         # 确保 index
         if "index" not in nodule:
             nodule["index"] = result["nodules"].index(nodule) + 1
@@ -186,11 +213,20 @@ def analyze_image(image_path: str, reasoning: str = "") -> str:
 
 
 @tool
-def retrieve_knowledge(detection_context: str, reasoning: str = "") -> str:
-    """根据CT检测结果检索医学知识库，获取诊断标准和随访建议。
+def retrieve_knowledge(
+    detection_context: str = "",
+    query: str = "",
+    reasoning: str = "",
+) -> str:
+    """检索医学知识库，获取诊断标准、随访建议等医学知识。
+
+    支持两种检索模式：
+    1. 检测模式：传入 detection_context（检测结果 JSON），基于结节特征检索
+    2. 查询模式：传入 query（自由文本问题），直接语义检索知识库
 
     Args:
-        detection_context: 检测结果的 JSON 格式字符串。
+        detection_context: 检测结果的 JSON 格式字符串（检测模式）。
+        query: 自由文本查询，如"什么是Lung-RADS分级"（查询模式）。
         reasoning: 推理过程记录（不参与业务逻辑）。
 
     Returns:
@@ -198,23 +234,28 @@ def retrieve_knowledge(detection_context: str, reasoning: str = "") -> str:
     """
     logger.info("调用 retrieve_knowledge 工具")
 
-    # 检查向量库是否已初始化
     vector_store = get_vector_store()
     if vector_store is None:
         logger.warning("向量数据库未初始化")
         return "知识库未初始化，请先执行 scripts/import_knowledge.py"
 
-    # 尝试将文本解析为 dict
+    # 查询模式：自由文本直接检索
+    if query:
+        logger.info("自由文本查询模式: %s", query)
+        try:
+            results = search_by_query(query, top_k=5, threshold=0.3)
+        except Exception as e:
+            logger.warning("知识库文本检索失败: %s", e)
+            return f"错误: 知识库检索失败: {e}"
+        return format_results(results)
+
+    # 检测模式：基于检测结果检索
     detection_result: Dict
     try:
-        detection_result = json.loads(detection_context)
+        detection_result = json.loads(detection_context) if detection_context else {}
     except (json.JSONDecodeError, TypeError):
-        logger.warning("无法解析检测结果 JSON，构建默认结构")
-        detection_result = {
-            "image": "unknown",
-            "total_nodules": 0,
-            "nodules": [],
-        }
+        logger.warning("无法解析检测结果 JSON，使用空查询")
+        detection_result = {}
 
     _normalize_detection_result(detection_result)
 

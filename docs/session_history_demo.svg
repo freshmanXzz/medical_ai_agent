@@ -1,0 +1,21 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1100" height="650" viewBox="0 0 1100 650">
+  <rect width="1100" height="650" fill="#111827"/>
+  <rect x="22" y="20" width="1056" height="610" rx="8" fill="#0b1220" stroke="#374151"/>
+  <circle cx="48" cy="43" r="7" fill="#ef4444"/><circle cx="70" cy="43" r="7" fill="#f59e0b"/><circle cx="92" cy="43" r="7" fill="#22c55e"/>
+  <g fill="#d1fae5" font-family="Consolas, monospace" font-size="18">
+    <text x="42" y="88">&gt;&gt;&gt; list</text>
+    <text x="42" y="122">=== History Sessions ===</text>
+    <text x="42" y="154">1. Analyze this CT [2026-07-14 09:32:11] (a8c1f03d) *</text>
+    <text x="42" y="186">2. Lung-RADS knowledge query [2026-07-14 09:20:04] (d14b9a22)</text>
+    <text x="42" y="218">3. Detailed report generation [2026-07-13 18:05:47] (f72e11c0)</text>
+    <text x="42" y="270">&gt;&gt;&gt; open 1</text>
+    <text x="42" y="304">=== Analyze this CT ===</text>
+    <text x="42" y="340">User: Analyze this CT</text>
+    <text x="42" y="376">Martin: Detected 3 pulmonary nodules.</text>
+    <text x="42" y="412">User: Generate a detailed report</text>
+    <text x="42" y="448">Martin: ## Diagnostic Report</text>
+    <text x="42" y="484">Martin: Follow-up is recommended according to Lung-RADS.</text>
+    <text x="42" y="536">=== End of History ===</text>
+    <text x="42" y="588">&gt;&gt;&gt; _</text>
+  </g>
+</svg>

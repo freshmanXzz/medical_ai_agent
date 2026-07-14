@@ -11,12 +11,15 @@
 import logging
 from typing import Optional
 
+from langgraph.checkpoint.base import BaseCheckpointSaver
+
 logger = logging.getLogger(__name__)
 
 
 def build_agent(
     verbose: bool = True,
     thread_id: Optional[str] = None,
+    checkpointer: Optional[BaseCheckpointSaver] = None,
 ):
     """构建完整的 Agent 执行器。
 
@@ -60,6 +63,7 @@ def build_agent(
         agent_executor = create_agent(
             verbose=verbose,
             thread_id=thread_id,
+            checkpointer=checkpointer,
         )
         logger.info("Agent 构建成功, thread_id=%s", thread_id or "default")
         return agent_executor

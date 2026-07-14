@@ -157,6 +157,45 @@ def search_by_detection(
     return filtered_results[:top_k]
 
 
+def search_by_query(
+    query: str,
+    top_k: int = 5,
+    threshold: float = 0.5,
+) -> List[Document]:
+    """根据自由文本查询检索医学知识库。
+
+    与 search_by_detection 不同，本函数接受任意文本查询，
+    用于用户直接提问知识类问题（如"什么是 Lung-RADS"）。
+
+    Args:
+        query: 自由文本查询字符串。
+        top_k: 返回的最相关文档数量，默认为 5。
+        threshold: 相似度阈值，默认为 0.5（比检测结果检索更宽松）。
+
+    Returns:
+        Document 列表。
+    """
+    vector_store = get_vector_store()
+    if vector_store is None:
+        logger.warning("向量数据库未初始化，无法执行检索")
+        return []
+
+    retriever = vector_store.as_retriever(
+        search_kwargs={"k": top_k * 2},
+    )
+
+    logger.info("自由文本查询: %s", query)
+    all_results: List[Document] = retriever.invoke(query)
+    all_results = _deduplicate_results(all_results)
+
+    filtered_results = [
+        doc
+        for doc in all_results
+        if doc.metadata.get("score", 1.0) >= threshold
+    ]
+    return filtered_results[:top_k]
+
+
 def format_results(results: List[Document]) -> str:
     """格式化检索结果为 LLM 可用的上下文文本。
 
