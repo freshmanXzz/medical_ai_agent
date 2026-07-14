@@ -15,10 +15,27 @@ import argparse
 import sys
 import os
 
+_interactive_console = bool(getattr(sys.stdout, "isatty", lambda: False)())
+
+if sys.platform == "win32" and _interactive_console:
+    try:
+        import ctypes
+
+        ctypes.windll.kernel32.SetConsoleOutputCP(65001)
+        ctypes.windll.kernel32.SetConsoleCP(65001)
+    except (AttributeError, OSError):
+        pass
+
 if hasattr(sys.stdout, "reconfigure"):
-    sys.stdout.reconfigure(errors="replace")
+    if _interactive_console:
+        sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+    else:
+        sys.stdout.reconfigure(errors="replace")
 if hasattr(sys.stderr, "reconfigure"):
-    sys.stderr.reconfigure(errors="replace")
+    if _interactive_console:
+        sys.stderr.reconfigure(encoding="utf-8", errors="replace")
+    else:
+        sys.stderr.reconfigure(errors="replace")
 
 def main():
     parser = argparse.ArgumentParser(
@@ -273,10 +290,35 @@ def handle_agent_legacy(args):
         user_input = None
 
 
+def _parse_agent_command(user_input: str):
+    """Parse slash-prefixed local commands without consuming natural language."""
+    if not user_input.startswith("/"):
+        return None, ""
+    command_text = user_input[1:].strip()
+    command, _, argument = command_text.partition(" ")
+    return command.lower(), argument.strip()
+
+
+def _print_agent_help(ui=None) -> None:
+    """Print interactive Agent commands."""
+    if ui is not None:
+        ui.help()
+        return
+    print("可用命令:")
+    print("  /list              列出历史会话")
+    print("  /open <编号>       查看历史会话")
+    print("  /switch <编号>     切换并继续历史会话")
+    print("  /new               创建新会话")
+    print("  /back              返回当前会话")
+    print("  /help              查看命令帮助")
+    print("  /exit              退出程序")
+
+
 def handle_agent_v2(args):
     """Run the interactive agent with persistent session navigation."""
     from martin.agent.agent_builder import build_agent
     from martin.agent.audit import AuditLogger
+    from martin.agent.cli_ui import AgentCLI
     from martin.agent.sessions import (
         SessionManager,
         close_default_checkpointer,
@@ -285,6 +327,7 @@ def handle_agent_v2(args):
 
     checkpointer = get_default_checkpointer()
     session_manager = SessionManager(checkpointer)
+    ui = AgentCLI()
 
     def start_session(session_id=None):
         audit_logger = AuditLogger(session_id=session_id)
@@ -296,13 +339,7 @@ def handle_agent_v2(args):
         return audit_logger, executor
 
     audit_logger, agent_executor = start_session()
-    print("=" * 60)
-    print("您好，我是 Martin 医学影像智能体。")
-    print("我可以协助分析肺部 CT、检索医学知识并生成结构化报告。")
-    print(f"当前会话 ID: {audit_logger.session_id}")
-    print("输入问题开始对话；可用命令: list, open <编号>, switch <编号>, new, back, exit")
-    print("=" * 60)
-    print()
+    ui.welcome(audit_logger.session_id)
 
     first_input = None
     if args.image:
@@ -316,100 +353,107 @@ def handle_agent_v2(args):
         while True:
             if user_input is None:
                 try:
-                    user_input = input(">>> ").strip()
+                    user_input = ui.prompt()
                 except (EOFError, KeyboardInterrupt):
-                    print("\nSession ended. History was saved.")
+                    ui.system("会话已结束，历史记录已保存。")
                     break
                 if not user_input:
                     user_input = None
                     continue
-                command, _, argument = user_input.partition(" ")
-                command = command.lower()
+                command, argument = _parse_agent_command(user_input)
 
                 if command in ("exit", "quit", "\u9000\u51fa"):
-                    print("Session ended. History was saved.")
+                    ui.system("会话已结束，历史记录已保存。")
                     break
+                if command in ("help", "?"):
+                    _print_agent_help(ui)
+                    user_input = None
+                    continue
                 if command in ("list", "sessions", "\u5386\u53f2"):
                     summaries = session_manager.list_sessions()
                     if not summaries:
-                        print("No history sessions.")
+                        ui.system("暂无历史会话。")
                     else:
-                        print("\n=== History Sessions ===")
-                        for index, summary in enumerate(summaries, 1):
-                            timestamp = summary.updated_at.replace("T", " ")[:19]
-                            marker = " *" if summary.thread_id == audit_logger.session_id else ""
-                            print(
-                                f"{index}. {summary.title} [{timestamp}] "
-                                f"({summary.thread_id}){marker}"
-                            )
-                        print()
+                        ui.session_list(summaries, audit_logger.session_id)
                     user_input = None
                     continue
                 if command == "open":
                     summaries = session_manager.list_sessions()
-                    selection = argument.strip() or input("Session number: ").strip()
+                    selection = argument or ui.ask_session_number()
                     try:
                         selected = summaries[int(selection) - 1]
                     except (ValueError, IndexError):
-                        print("Invalid session number.")
+                        ui.error("无效的会话编号。")
                         user_input = None
                         continue
-                    print(f"\n=== {selected.title} ===")
+                    ui.history_start(selected.title)
                     messages = session_manager.get_messages(selected.thread_id)
                     if not messages:
-                        print("This session has no displayable messages.")
+                        ui.system("这个会话没有可显示的消息。")
                     else:
                         for message in messages:
-                            print(f"{message.role}: {message.content}\n")
-                    print("=== End of History ===\n")
+                            ui.history_message(message.role, message.content)
+                    ui.history_end()
                     user_input = None
                     continue
                 if command == "switch":
                     summaries = session_manager.list_sessions()
-                    selection = argument.strip() or input("Session number: ").strip()
+                    selection = argument or ui.ask_session_number()
                     try:
                         selected = summaries[int(selection) - 1]
                     except (ValueError, IndexError):
-                        print("Invalid session number.")
+                        ui.error("无效的会话编号。")
                         user_input = None
                         continue
                     audit_logger, agent_executor = start_session(selected.thread_id)
-                    print(f"Switched to session: {selected.title} ({selected.thread_id})")
+                    ui.system(f"已切换到会话: {selected.title} ({selected.thread_id})")
                     user_input = None
                     continue
                 if command == "new":
                     audit_logger, agent_executor = start_session()
-                    print(f"New session: {audit_logger.session_id}")
+                    ui.system(f"已创建新会话: {audit_logger.session_id}")
                     user_input = None
                     continue
                 if command == "back":
-                    print("Returned to the current session.")
+                    ui.system("已返回当前会话。")
+                    user_input = None
+                    continue
+                if command is not None:
+                    shown_command = command or user_input
+                    ui.error(f"不支持的系统命令: /{shown_command}")
+                    ui.system("输入 /help 查看可用命令；不带 / 的内容会作为自然语言交给 Agent。")
                     user_input = None
                     continue
 
             try:
                 result = agent_executor.invoke({"input": user_input})
                 output = result.get("output", "")
-                for action, action_output in result.get("intermediate_steps", []):
+                intermediate_steps = result.get("intermediate_steps", [])
+                for action, action_output in intermediate_steps:
                     audit_logger.log_tool_call(
                         tool_name=action.tool,
                         args=action.tool_input,
                         output_summary=str(action_output)[:500],
                     )
                 if output:
-                    print(f"\n{output}\n")
+                    generated_report = any(
+                        action.tool == "generate_report"
+                        for action, _ in intermediate_steps
+                    )
+                    ui.assistant(output, is_report=generated_report)
                 if args.image and output:
-                    _save_agent_report(output, args)
+                    report_path = _save_agent_report(output, args, announce=False)
+                    ui.system(f"报告已保存到: {report_path}")
             except Exception as exc:
                 error_msg = f"Agent execution failed: {exc}"
-                print(error_msg)
+                ui.error(error_msg)
                 audit_logger.log_agent_error(str(exc))
             user_input = None
     finally:
         close_default_checkpointer()
 
 
-def _save_agent_report(report: str, args) -> str:
+def _save_agent_report(report: str, args, announce: bool = True) -> str:
     """保存 Agent 生成的报告到 results/ 目录。"""
     import os
     from datetime import datetime
@@ -427,7 +471,8 @@ def _save_agent_report(report: str, args) -> str:
     with open(filepath, "w", encoding="utf-8") as f:
         f.write(report)
 
-    print(f"报告已保存到: {filepath}")
+    if announce:
+        print(f"报告已保存到: {filepath}")
     return filepath
 
 

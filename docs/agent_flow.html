@@ -3,583 +3,516 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Martin Medical Agent — 调用流程可视化</title>
-<script src="https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.min.js"></script>
+<title>Martin Medical Agent - 项目全景</title>
 <style>
   :root {
-    --bg: #0d1117;
-    --card: #161b22;
-    --border: #30363d;
-    --text: #e6edf3;
-    --text-dim: #8b949e;
-    --blue: #58a6ff;
-    --green: #3fb950;
-    --orange: #d29922;
-    --purple: #bc8cff;
-    --red: #f85149;
-    --cyan: #39d2c0;
+    --bg: #0b0f14;
+    --surface: #121820;
+    --surface-2: #171f29;
+    --border: #2b3643;
+    --text: #e8edf2;
+    --muted: #9aa8b7;
+    --blue: #5aa7ff;
+    --green: #55c58a;
+    --yellow: #e7b84b;
+    --red: #ef7373;
+    --cyan: #51cbd3;
+    --violet: #b59aff;
+    --sidebar: 238px;
   }
-  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  * { box-sizing: border-box; }
+  html { scroll-behavior: smooth; }
   body {
+    margin: 0;
     background: var(--bg);
     color: var(--text);
-    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Noto Sans SC', sans-serif;
-    padding: 32px;
-    line-height: 1.6;
+    font-family: "Segoe UI", "Microsoft YaHei", sans-serif;
+    font-size: 15px;
+    line-height: 1.65;
   }
-  .container { max-width: 1200px; margin: 0 auto; }
+  a { color: inherit; }
+  code, pre {
+    font-family: "Cascadia Code", "JetBrains Mono", Consolas, monospace;
+  }
+
+  .sidebar {
+    position: fixed;
+    inset: 0 auto 0 0;
+    width: var(--sidebar);
+    padding: 26px 18px;
+    background: #0e141b;
+    border-right: 1px solid var(--border);
+    overflow-y: auto;
+  }
+  .brand {
+    padding: 0 10px 22px;
+    border-bottom: 1px solid var(--border);
+  }
+  .brand strong { display: block; font-size: 18px; }
+  .brand span { color: var(--muted); font-size: 12px; }
+  nav { padding-top: 18px; }
+  nav a {
+    display: block;
+    padding: 8px 10px;
+    color: var(--muted);
+    text-decoration: none;
+    border-left: 2px solid transparent;
+    font-size: 13px;
+  }
+  nav a:hover {
+    color: var(--text);
+    border-left-color: var(--blue);
+    background: var(--surface);
+  }
+
+  main {
+    margin-left: var(--sidebar);
+    min-width: 0;
+  }
+  .hero {
+    min-height: 430px;
+    display: grid;
+    align-content: center;
+    padding: 64px clamp(28px, 7vw, 100px);
+    border-bottom: 1px solid var(--border);
+    background: #101720;
+  }
+  .eyebrow {
+    color: var(--cyan);
+    font-family: "Cascadia Code", Consolas, monospace;
+    font-size: 13px;
+    margin-bottom: 14px;
+  }
+  h1, h2, h3 { letter-spacing: 0; }
   h1 {
-    font-size: 28px;
-    font-weight: 700;
-    margin-bottom: 4px;
-    color: #fff;
+    max-width: 880px;
+    margin: 0;
+    font-size: clamp(34px, 6vw, 68px);
+    line-height: 1.08;
+    font-weight: 720;
   }
-  .subtitle {
-    color: var(--text-dim);
-    font-size: 14px;
-    margin-bottom: 32px;
+  .hero p {
+    max-width: 760px;
+    margin: 24px 0 0;
+    color: var(--muted);
+    font-size: 18px;
+  }
+  .status-row {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 18px;
+    margin-top: 34px;
+    font-family: "Cascadia Code", Consolas, monospace;
+    color: var(--muted);
+    font-size: 12px;
+  }
+  .status-row b { color: var(--green); font-weight: 600; }
+
+  section {
+    padding: 58px clamp(24px, 6vw, 84px);
+    border-bottom: 1px solid var(--border);
+  }
+  .section-head {
+    display: grid;
+    grid-template-columns: minmax(210px, 0.7fr) minmax(300px, 1.3fr);
+    gap: 34px;
+    margin-bottom: 30px;
   }
   h2 {
-    font-size: 18px;
-    font-weight: 600;
-    margin: 32px 0 12px;
-    padding-bottom: 8px;
-    border-bottom: 1px solid var(--border);
-    color: #fff;
+    margin: 0;
+    font-size: 25px;
+    line-height: 1.25;
   }
-  .card {
-    background: var(--card);
-    border: 1px solid var(--border);
-    border-radius: 8px;
-    padding: 20px;
-    margin-bottom: 16px;
-  }
-  .flow-grid {
-    display: grid;
-    grid-template-columns: 1fr 1fr;
-    gap: 16px;
-  }
-  @media (max-width: 768px) {
-    .flow-grid { grid-template-columns: 1fr; }
-    body { padding: 16px; }
-  }
-  .call-chain {
-    font-family: 'JetBrains Mono', 'Fira Code', monospace;
-    font-size: 13px;
-    line-height: 1.8;
-    padding: 16px;
-    background: #0d1117;
-    border-radius: 6px;
-    border: 1px solid var(--border);
-    overflow-x: auto;
-  }
-  .call-chain .arrow { color: var(--blue); }
-  .call-chain .file { color: var(--green); }
-  .call-chain .fn { color: var(--orange); }
-  .call-chain .param { color: var(--purple); }
-  .call-chain .str { color: var(--cyan); }
-  .call-chain .comment { color: var(--text-dim); font-style: italic; }
-  .badge {
-    display: inline-block;
-    padding: 2px 8px;
-    border-radius: 4px;
-    font-size: 11px;
-    font-weight: 600;
-    margin-right: 4px;
-  }
-  .badge-blue { background: #1f6feb33; color: var(--blue); border: 1px solid #1f6feb66; }
-  .badge-green { background: #3fb95033; color: var(--green); border: 1px solid #3fb95066; }
-  .badge-orange { background: #d2992233; color: var(--orange); border: 1px solid #d2992266; }
-  .badge-purple { background: #bc8cff33; color: var(--purple); border: 1px solid #bc8cff66; }
-  .data-table {
-    width: 100%;
-    border-collapse: collapse;
-    font-size: 13px;
-  }
-  .data-table th {
-    text-align: left;
-    padding: 8px 12px;
-    border-bottom: 2px solid var(--border);
-    color: var(--text-dim);
-    font-weight: 600;
-  }
-  .data-table td {
-    padding: 8px 12px;
-    border-bottom: 1px solid var(--border);
-    vertical-align: top;
-  }
-  .data-table tr:hover td { background: #1c2128; }
-  .mermaid-wrapper {
-    background: #fff;
-    border-radius: 8px;
-    padding: 24px;
-    margin-bottom: 16px;
-    overflow-x: auto;
-  }
-  .note {
-    background: #1f6feb11;
-    border-left: 3px solid var(--blue);
-    padding: 12px 16px;
-    border-radius: 0 6px 6px 0;
-    font-size: 13px;
-    color: var(--text-dim);
-    margin-bottom: 16px;
-  }
-  .section-label {
-    display: inline-block;
+  .section-head p { margin: 0; color: var(--muted); }
+  h3 { margin: 0 0 10px; font-size: 15px; }
+  .kicker {
+    display: block;
+    color: var(--blue);
+    font-family: "Cascadia Code", Consolas, monospace;
     font-size: 12px;
-    font-weight: 600;
-    padding: 2px 10px;
-    border-radius: 10px;
     margin-bottom: 8px;
   }
-  .s1 { background: #1f6feb33; color: var(--blue); }
-  .s2 { background: #3fb95033; color: var(--green); }
-  .s3 { background: #d2992233; color: var(--orange); }
-  .s4 { background: #bc8cff33; color: var(--purple); }
-  .s5 { background: #f8514933; color: var(--red); }
+
+  .pipeline {
+    display: grid;
+    grid-template-columns: repeat(5, minmax(130px, 1fr));
+    gap: 12px;
+    align-items: stretch;
+  }
+  .node {
+    position: relative;
+    min-height: 118px;
+    padding: 16px;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-top: 3px solid var(--blue);
+    border-radius: 6px;
+  }
+  .node:not(:last-child)::after {
+    content: "→";
+    position: absolute;
+    right: -20px;
+    top: 43px;
+    z-index: 2;
+    color: var(--muted);
+  }
+  .node small { display: block; color: var(--muted); }
+  .node.green { border-top-color: var(--green); }
+  .node.yellow { border-top-color: var(--yellow); }
+  .node.violet { border-top-color: var(--violet); }
+  .node.cyan { border-top-color: var(--cyan); }
+
+  .grid-2, .grid-3, .grid-4 {
+    display: grid;
+    gap: 14px;
+  }
+  .grid-2 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .grid-3 { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  .grid-4 { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+  .panel {
+    padding: 18px;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+  }
+  .panel p { margin: 0; color: var(--muted); font-size: 13px; }
+  .panel .file { color: var(--cyan); font-family: "Cascadia Code", Consolas, monospace; font-size: 12px; }
+  .number {
+    display: block;
+    margin-bottom: 14px;
+    color: var(--yellow);
+    font-family: "Cascadia Code", Consolas, monospace;
+    font-size: 12px;
+  }
+
+  .flow-list { display: grid; gap: 0; }
+  .flow-step {
+    display: grid;
+    grid-template-columns: 54px minmax(190px, 0.65fr) minmax(300px, 1.35fr);
+    gap: 18px;
+    padding: 18px 0;
+    border-top: 1px solid var(--border);
+  }
+  .flow-step:last-child { border-bottom: 1px solid var(--border); }
+  .step-index {
+    color: var(--blue);
+    font-family: "Cascadia Code", Consolas, monospace;
+    font-size: 13px;
+  }
+  .flow-step strong { font-size: 14px; }
+  .flow-step p { margin: 0; color: var(--muted); font-size: 13px; }
+
+  .code-block {
+    margin: 18px 0 0;
+    padding: 16px 18px;
+    overflow-x: auto;
+    background: #090d12;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    color: #c8d3de;
+    font-size: 12px;
+    line-height: 1.75;
+    white-space: pre;
+  }
+  .code-block .cmd { color: var(--green); }
+  .code-block .comment { color: #718092; }
+  .code-block .key { color: var(--blue); }
+  .code-block .value { color: var(--yellow); }
+
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    font-size: 13px;
+  }
+  th, td {
+    padding: 12px 14px;
+    text-align: left;
+    vertical-align: top;
+    border-bottom: 1px solid var(--border);
+  }
+  th { color: var(--muted); background: var(--surface-2); font-weight: 600; }
+  td code { color: var(--cyan); }
+  tr:last-child td { border-bottom: 0; }
+
+  .store-map {
+    display: grid;
+    grid-template-columns: 0.8fr 1.2fr;
+    gap: 14px;
+  }
+  .store-index { display: grid; gap: 10px; }
+  .store-item {
+    padding: 14px 16px;
+    border-left: 3px solid var(--blue);
+    background: var(--surface);
+  }
+  .store-item:nth-child(2) { border-left-color: var(--violet); }
+  .store-item:nth-child(3) { border-left-color: var(--green); }
+  .store-item:nth-child(4) { border-left-color: var(--yellow); }
+  .store-item:nth-child(5) { border-left-color: var(--cyan); }
+  .store-item strong { display: block; font-size: 13px; }
+  .store-item span { color: var(--muted); font-size: 12px; }
+
+  .warning {
+    padding: 16px 18px;
+    background: #2a1b1d;
+    border-left: 3px solid var(--red);
+    color: #e6b8b8;
+    font-size: 13px;
+  }
+  .fact {
+    padding: 16px 18px;
+    background: #11241d;
+    border-left: 3px solid var(--green);
+    color: #b8ddca;
+    font-size: 13px;
+  }
+  .risk-list { display: grid; gap: 10px; }
+  .risk {
+    display: grid;
+    grid-template-columns: 100px 1fr;
+    gap: 18px;
+    padding: 15px 0;
+    border-top: 1px solid var(--border);
+  }
+  .risk:last-child { border-bottom: 1px solid var(--border); }
+  .risk .level { color: var(--yellow); font-family: "Cascadia Code", Consolas, monospace; font-size: 12px; }
+  .risk p { margin: 0; color: var(--muted); font-size: 13px; }
+  footer {
+    margin-left: var(--sidebar);
+    padding: 30px clamp(24px, 6vw, 84px);
+    color: var(--muted);
+    font-size: 12px;
+  }
+
+  @media (max-width: 1020px) {
+    .pipeline { grid-template-columns: 1fr 1fr; }
+    .node:not(:last-child)::after { display: none; }
+    .grid-4 { grid-template-columns: 1fr 1fr; }
+    .grid-3 { grid-template-columns: 1fr; }
+  }
+  @media (max-width: 760px) {
+    .sidebar { position: static; width: auto; border-right: 0; border-bottom: 1px solid var(--border); }
+    nav { display: flex; overflow-x: auto; gap: 4px; }
+    nav a { flex: 0 0 auto; border-left: 0; border-bottom: 2px solid transparent; }
+    main, footer { margin-left: 0; }
+    .hero { min-height: 390px; }
+    .section-head, .store-map { grid-template-columns: 1fr; }
+    .grid-2, .grid-4, .pipeline { grid-template-columns: 1fr; }
+    .flow-step { grid-template-columns: 38px 1fr; }
+    .flow-step p { grid-column: 2; }
+    .risk { grid-template-columns: 1fr; gap: 4px; }
+  }
+  @media print {
+    .sidebar { display: none; }
+    main, footer { margin-left: 0; }
+    body { background: #fff; color: #111; }
+    .hero, section { break-inside: avoid; }
+  }
 </style>
 </head>
 <body>
-<div class="container">
+<aside class="sidebar">
+  <div class="brand">
+    <strong>Martin</strong>
+    <span>Medical AI Agent / alpha</span>
+  </div>
+  <nav aria-label="页面目录">
+    <a href="#overview">01 项目定位</a>
+    <a href="#architecture">02 架构全景</a>
+    <a href="#runtime">03 对话主流程</a>
+    <a href="#ct-flow">04 CT 分析流程</a>
+    <a href="#sessions">05 会话系统</a>
+    <a href="#data">06 数据与持久化</a>
+    <a href="#files">07 代码地图</a>
+    <a href="#run">08 如何运行</a>
+    <a href="#boundaries">09 当前边界</a>
+  </nav>
+</aside>
 
-<h1>Martin Medical Agent — 调用流程可视化</h1>
-<p class="subtitle">从用户输入到最终输出的完整数据流 / 2026-07-13</p>
+<main>
+  <header class="hero" id="overview">
+    <div class="eyebrow">CURRENT ARCHITECTURE / 2026-07-14</div>
+    <h1>肺部 CT 检测、医学知识检索与多轮对话智能体</h1>
+    <p>Martin 是一个本地 CLI 医疗 AI 项目。它让大语言模型负责理解需求和选择工具，让 MONAI、ChromaDB 与报告链分别承担确定的业务工作，并用 SQLite 保存跨重启的聊天历史。</p>
+    <div class="status-row">
+      <span><b>4</b> Agent Tools</span>
+      <span><b>SQLite</b> Session Checkpoints</span>
+      <span><b>ChromaDB</b> Medical RAG</span>
+      <span><b>MONAI</b> 3D RetinaNet</span>
+    </div>
+  </header>
 
-<!-- ============================== -->
-<h2>一、整体架构总览</h2>
-<div class="mermaid-wrapper">
-<div class="mermaid">
-flowchart TD
-    U["👤 用户输入"] --> M["main.py<br>chat_loop()"]
-    M --> AB["agent_builder.py<br>build_agent()"]
-    AB --> AE["agent.py<br>AgentExecutor"]
-    
-    AE --> LG["LangGraph StateGraph<br>(create_agent 内部)"]
-    
-    subgraph LG_Loop["LangGraph 推理循环"]
-        direction TB
-        LLM["DeepSeek LLM<br>ChatOpenAI"] --> DECIDE{"有 tool_calls?"}
-        DECIDE -->|"Yes"| TOOL["执行 @tool 函数"]
-        TOOL --> LLM
-        DECIDE -->|"No"| RESP["返回最终回答"]
-    end
-    
-    LG --> RESP
-    RESP --> AE
-    AE --> M
-    
-    M --> O["📋 打印输出"]
-    M --> AL["audit.py<br>AuditLogger"]
-    
-    subgraph Tools["Agent 工具集"]
-        T1["analyze_image<br>→ NoduleDetector"]
-        T2["retrieve_knowledge<br>→ ChromaDB"]
-        T3["generate_report<br>→ chain.py LCEL"]
-        T4["update_case_context<br>→ CaseContext"]
-    end
-    
-    TOOL --> Tools
-    T3 --> CHAIN["chain.py<br>LCEL 链"]
-    CHAIN --> FALLBACK["模板降级<br>(LLM失败时)"]
-    
-    style U fill:#1f6feb22,stroke:#58a6ff,stroke-width:2px
-    style LG fill:#d2992222,stroke:#d29922,stroke-width:2px
-    style Tools fill:#bc8cff22,stroke:#bc8cff,stroke-width:2px
-</div>
-</div>
+  <section id="architecture">
+    <div class="section-head">
+      <div><span class="kicker">02 / ARCHITECTURE</span><h2>一眼看懂系统分工</h2></div>
+      <p>核心原则是：LLM 负责判断下一步做什么，工具负责真正执行。对话、病例状态、医学知识和日志分别存储，避免把所有状态混在一处。</p>
+    </div>
+    <div class="pipeline" aria-label="整体调用流程">
+      <div class="node"><small>入口</small><strong>CLI</strong><small>普通中英文交给 Agent，只解析 /list /open /switch 等系统命令</small></div>
+      <div class="node green"><small>编排</small><strong>AgentExecutor</strong><small>注入病例上下文，携带 thread_id 调用 LangGraph</small></div>
+      <div class="node yellow"><small>决策</small><strong>DeepSeek LLM</strong><small>直接回答，或生成一个或多个 tool_calls</small></div>
+      <div class="node violet"><small>执行</small><strong>4 个业务工具</strong><small>检测、检索、病例更新、报告生成</small></div>
+      <div class="node cyan"><small>状态</small><strong>持久化与日志</strong><small>SQLite、ChromaDB、audit、log、results</small></div>
+    </div>
+    <div class="grid-4" style="margin-top:14px">
+      <div class="panel"><span class="number">TOOL 01</span><h3>analyze_image</h3><p>加载 NIfTI CT，使用 MONAI RetinaNet 检测结节，并把结构化结果写入当前 CaseContext。</p></div>
+      <div class="panel"><span class="number">TOOL 02</span><h3>retrieve_knowledge</h3><p>支持检测结果 JSON 和自由文本两种模式，从 ChromaDB 返回带来源的医学资料。</p></div>
+      <div class="panel"><span class="number">TOOL 03</span><h3>generate_report</h3><p>解析检测结果，调用报告 LCEL 链；LLM 失败时降级为模板报告。</p></div>
+      <div class="panel"><span class="number">TOOL 04</span><h3>update_case_context</h3><p>从自然语言中提取年龄、性别、吸烟史和家族史，保存到当前病例状态。</p></div>
+    </div>
+  </section>
 
-<!-- ============================== -->
-<h2>二、详细调用链路</h2>
-<div class="call-chain">
-<span class="comment"># ═══════════════════════════════════════════</span>
-<span class="comment"># 第 1 层：入口</span>
-<span class="comment"># ═══════════════════════════════════════════</span>
-<span class="file">main.py</span>:<span class="fn">chat_loop</span>(agent, audit_logger)
-  <span class="arrow">→</span> <span class="fn">agent.invoke</span>(<span class="param">inputs</span>={<span class="str">"input"</span>: user_input})
-  <span class="arrow">→</span> <span class="fn">response.get</span>(<span class="str">"output"</span>, <span class="str">""</span>)
-  <span class="arrow">→</span> <span class="fn">audit_logger.log_tool_call</span>(...)  <span class="comment"># 记录中间步骤</span>
+  <section id="runtime">
+    <div class="section-head">
+      <div><span class="kicker">03 / RUNTIME</span><h2>一次普通对话如何运行</h2></div>
+      <p>LangGraph checkpoint 会自动把同一 thread_id 的旧消息带回模型。AgentExecutor 只需要提交本轮用户输入和当前病例摘要。</p>
+    </div>
+    <div class="flow-list">
+      <div class="flow-step"><span class="step-index">01</span><strong>CLI 接收输入</strong><p><code>handle_agent_v2()</code> 只把以 <code>/</code> 开头的内容识别为本地命令；其余中英文文本全部传给 Agent。</p></div>
+      <div class="flow-step"><span class="step-index">02</span><strong>注入病例摘要</strong><p><code>AgentExecutor.invoke()</code> 从当前 CaseContext 生成摘要，并与用户消息一起组成本轮 messages。</p></div>
+      <div class="flow-step"><span class="step-index">03</span><strong>恢复聊天历史</strong><p>调用配置携带 <code>thread_id</code>。SqliteSaver 读取该 thread 最新 checkpoint，并合并历史消息。</p></div>
+      <div class="flow-step"><span class="step-index">04</span><strong>LLM 决定动作</strong><p>模型可以直接生成最终回答，也可以调用工具。工具结果以 ToolMessage 返回后，模型继续判断。</p></div>
+      <div class="flow-step"><span class="step-index">05</span><strong>解析与落盘</strong><p>最终 AIMessage 作为输出打印；LangGraph 保存 checkpoint，AuditLogger 记录工具调用，运行日志写入 log。</p></div>
+    </div>
+    <pre class="code-block"><span class="comment"># 关键调用关系</span>
+handle_agent_v2()
+  → build_agent(thread_id=session_id, checkpointer=SqliteSaver)
+  → AgentExecutor.invoke({"input": user_input})
+  → create_langchain_agent(...).invoke(
+      {"messages": messages},
+      {"configurable": {"thread_id": session_id}}
+    )
+  → {"output": final_text, "intermediate_steps": tool_steps}</pre>
+  </section>
 
-<span class="comment"># ═══════════════════════════════════════════</span>
-<span class="comment"># 第 2 层：AgentExecutor 编排</span>
-<span class="comment"># ═══════════════════════════════════════════</span>
-<span class="file">agent.py</span>:<span class="fn">AgentExecutor.__init__</span>(tools=[analyze_image, retrieve_knowledge, generate_report, update_case_context],
-                                      verbose=True, thread_id=<span class="str">"default"</span>)
-  <span class="arrow">→</span> llm = <span class="fn">get_chat_model</span>()  <span class="comment"># ChatOpenAI(DeepSeek)</span>
-  <span class="arrow">→</span> memory = <span class="fn">MemorySaver</span>()  <span class="comment"># LangGraph 内存检查点</span>
-  <span class="arrow">→</span> self._agent = <span class="fn">create_langchain_agent</span>(
-        model=llm, tools=tools, system_prompt=SYSTEM_PROMPT, checkpointer=memory
-      )
+  <section id="ct-flow">
+    <div class="section-head">
+      <div><span class="kicker">04 / CT PIPELINE</span><h2>CT 分析不是一次函数调用</h2></div>
+      <p>完整病例通常经过检测、知识检索和报告生成三个阶段。Agent 负责把前一步的文本结果整理为下一工具需要的参数。</p>
+    </div>
+    <div class="grid-3">
+      <div class="panel"><span class="number">A / DETECT</span><h3>MONAI 检测</h3><p>读取 NIfTI，执行方向、spacing、强度归一化和滑窗推理，输出每个结节的中心、三维尺寸、最大直径和置信度。</p></div>
+      <div class="panel"><span class="number">B / RETRIEVE</span><h3>医学知识检索</h3><p>检测特征被转换为语义查询，从 Lung-RADS、专家共识和诊疗指南中检索最相关片段。</p></div>
+      <div class="panel"><span class="number">C / REPORT</span><h3>结构化报告</h3><p>LCEL 链组合患者信息、结节详情和知识资料，请 LLM 生成 Markdown 报告；异常时使用模板降级。</p></div>
+    </div>
+    <div class="grid-2" style="margin-top:14px">
+      <div class="fact"><strong>标准检测字段</strong><br><code>total_nodules</code>、<code>nodules</code>、<code>index</code>、<code>diameter</code>、<code>score</code>、<code>center</code>、<code>dimensions</code></div>
+      <div class="warning"><strong>为什么需要字段归一化</strong><br>工具返回给 LLM 的检测内容目前是格式化文本，不是直接透传 JSON。LLM 重建下游参数时可能翻译字段名，因此代码同时兼容已观察到的中文别名。</div>
+    </div>
+  </section>
 
-<span class="file">agent.py</span>:<span class="fn">AgentExecutor.invoke</span>(inputs)
-  <span class="arrow">→</span> messages = [(<span class="str">"system"</span>, context_str), (<span class="str">"human"</span>, inputs[<span class="str">"input"</span>])]
-  <span class="arrow">→</span> config = {<span class="str">"configurable"</span>: {<span class="str">"thread_id"</span>: self.thread_id}}
-  <span class="arrow">→</span> result = self._agent.<span class="fn">invoke</span>({<span class="str">"messages"</span>: messages}, config=config)
-  <span class="arrow">→</span> output = self.<span class="fn">_parse_result</span>(result)  <span class="comment"># 取最后一条 AIMessage.content</span>
-  <span class="arrow">→</span> steps = self.<span class="fn">_extract_intermediate_steps</span>(result)
-  <span class="arrow">→</span> self.<span class="fn">_sync_case_context_from_steps</span>(steps)
-  <span class="arrow">→</span> <span class="fn">return</span> {<span class="str">"output"</span>: output, <span class="str">"intermediate_steps"</span>: steps}
+  <section id="sessions">
+    <div class="section-head">
+      <div><span class="kicker">05 / SESSIONS</span><h2>历史会话与当前会话</h2></div>
+      <p><code>AuditLogger.session_id</code> 同时作为 LangGraph 的 thread_id。这个统一标识连接 CLI、SQLite checkpoint、病例缓存和审计日志。</p>
+    </div>
+    <table>
+      <thead><tr><th>命令</th><th>实际行为</th><th>是否改变当前会话</th></tr></thead>
+      <tbody>
+        <tr><td><code>/list</code></td><td>枚举 SQLite 中唯一 thread_id，按最近更新时间倒序显示标题和 ID。</td><td>否</td></tr>
+        <tr><td><code>/open 1</code></td><td>读取第 1 个会话的最新 checkpoint，只展示 HumanMessage 和最终 AIMessage。</td><td>否</td></tr>
+        <tr><td><code>/switch 1</code></td><td>用所选 thread_id 重建 AgentExecutor，后续消息继续写入原会话。</td><td>是</td></tr>
+        <tr><td><code>/new</code></td><td>生成新 session_id 并创建新的 AgentExecutor；首次真实消息后才产生 checkpoint。</td><td>是</td></tr>
+        <tr><td><code>/back</code></td><td>打印返回提示。由于 open 本身不切换状态，目前没有额外状态需要恢复。</td><td>否</td></tr>
+        <tr><td><code>/help</code></td><td>显示系统支持的斜杠命令；未知斜杠命令不会发送给 Agent。</td><td>否</td></tr>
+        <tr><td><code>/exit</code></td><td>结束输入循环并关闭进程级 SQLite checkpointer。</td><td>结束程序</td></tr>
+      </tbody>
+    </table>
+    <pre class="code-block"><span class="comment"># SessionManager 展示规则</span>
+SQLite checkpoints
+  → 每个 thread_id 只保留最新 checkpoint 用于列表和详情
+  → 第一条真实 HumanMessage 生成标题（清洗、最多 48 字）
+  → 过滤内部“病例上下文”注入消息
+  → 过滤带 tool_calls 的 AIMessage 和 ToolMessage
+  → 最终展示：User / Martin 对话</pre>
+  </section>
 
-<span class="comment"># ═══════════════════════════════════════════</span>
-<span class="comment"># 第 3 层：LangGraph 内部循环</span>
-<span class="comment"># ═══════════════════════════════════════════</span>
-<span class="file">langchain.agents</span>:<span class="fn">create_agent</span>(model, tools, prompt, checkpointer)
-  <span class="arrow">→</span> <span class="fn">llm.bind_tools</span>(tools)  <span class="comment"># 将工具 schema 绑定到 LLM</span>
-  <span class="arrow">→</span> <span class="fn">StateGraph</span>(MessagesState)  <span class="comment"># 构建状态图</span>
-      ├─ 节点: <span class="str">"llm"</span>  → 调用 bound LLM → AIMessage(含 tool_calls)
-      ├─ 节点: <span class="str">"tools"</span> → 执行 tool_calls → ToolMessage
-      └─ 边: 条件分支 (有 tool_calls → tools, 否则 → 结束)
-  <span class="arrow">→</span> graph.<span class="fn">compile</span>(checkpointer=memory)  <span class="comment"># 编译为可运行对象</span>
+  <section id="data">
+    <div class="section-head">
+      <div><span class="kicker">06 / DATA</span><h2>五类状态放在哪里</h2></div>
+      <p>“持久化会话”和“持久化所有业务状态”不是同一件事。当前 SQLite 保存对话 checkpoint，但 CaseContext 对象仍是进程内缓存。</p>
+    </div>
+    <div class="store-map">
+      <div class="store-index">
+        <div class="store-item"><strong>data/sessions.sqlite</strong><span>跨重启保存 LangGraph messages 和 checkpoint 状态</span></div>
+        <div class="store-item"><strong>ChromaDB/</strong><span>持久化医学文档向量和 metadata</span></div>
+        <div class="store-item"><strong>AgentExecutor._context_cache</strong><span>按 thread_id 隔离 CaseContext，仅当前 Python 进程</span></div>
+        <div class="store-item"><strong>audit/ 与 log/</strong><span>工具审计、系统日志和 Agent 运行日志</span></div>
+        <div class="store-item"><strong>results/</strong><span>检测 JSON 和生成的 Markdown 报告</span></div>
+      </div>
+      <table>
+        <thead><tr><th>内容</th><th>重启后保留</th><th>主要读取者</th></tr></thead>
+        <tbody>
+          <tr><td>完整用户/Agent 消息</td><td>是</td><td>LangGraph、SessionManager</td></tr>
+          <tr><td>医学知识向量</td><td>是</td><td>Retriever</td></tr>
+          <tr><td>结构化患者与结节状态</td><td>否（对象本身）</td><td>AgentExecutor、Tools</td></tr>
+          <tr><td>工具调用审计</td><td>是</td><td>开发排查、审计</td></tr>
+          <tr><td>模型权重</td><td>是</td><td>MONAI、Embedding</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
 
-<span class="comment"># ═══════════════════════════════════════════</span>
-<span class="comment"># 第 4 层：Tool 调用</span>
-<span class="comment"># ═══════════════════════════════════════════</span>
-<span class="file">tools.py</span>:<span class="fn">analyze_image</span>(<span class="param">image_path</span>=<span class="str">"/path/to/ct.nii.gz"</span>, <span class="param">reasoning</span>=<span class="str">"..."</span>)
-  <span class="arrow">→</span> NoduleDetector.<span class="fn">detect</span>(image_path)
-  <span class="arrow">→</span> <span class="fn">return</span> json.dumps({<span class="str">"image"</span>: ..., <span class="str">"total_nodules"</span>: N, <span class="str">"nodules"</span>: [...]})
+  <section id="files">
+    <div class="section-head">
+      <div><span class="kicker">07 / CODE MAP</span><h2>按职责阅读代码</h2></div>
+      <p>第一次看项目建议按入口 → 会话 → Agent → 工具 → 领域实现的顺序，不要从底层模型文件开始。</p>
+    </div>
+    <div class="grid-3">
+      <div class="panel"><span class="file">martin/__main__.py</span><h3>CLI 与命令路由</h3><p><code>main()</code> 处理子命令；<code>handle_agent_v2()</code> 是当前多轮 Agent 入口。</p></div>
+      <div class="panel"><span class="file">martin/agent/sessions.py</span><h3>会话访问层</h3><p>创建进程级 SqliteSaver、列出 thread、提取可展示对话并关闭连接。</p></div>
+      <div class="panel"><span class="file">martin/agent/agent.py</span><h3>Agent 编排层</h3><p>创建 LangChain Agent、注入 CaseContext、运行 LangGraph、解析工具步骤和最终回答。</p></div>
+      <div class="panel"><span class="file">martin/agent/tools.py</span><h3>业务工具边界</h3><p>四个 @tool 的参数协议、异常处理、字段归一化和上下文同步都在这里。</p></div>
+      <div class="panel"><span class="file">martin/vision/nodule_detector.py</span><h3>视觉推理</h3><p>构建 MONAI 3D RetinaNet、加载权重、预处理 CT、滑窗推理并解析结节。</p></div>
+      <div class="panel"><span class="file">martin/rag/</span><h3>RAG 基础设施</h3><p>文档加载、切分、BGE embedding、ChromaDB vector store 和语义检索。</p></div>
+      <div class="panel"><span class="file">martin/llm/chain.py</span><h3>报告链</h3><p>组合知识、患者和结节信息，调用 LLM，并提供模板报告降级路径。</p></div>
+      <div class="panel"><span class="file">martin/agent/case_context.py</span><h3>结构化病例状态</h3><p>保存患者、图像、结节、知识摘要和临床备注，限制注入模型的长度。</p></div>
+      <div class="panel"><span class="file">tests/</span><h3>行为证据</h3><p>覆盖工具、病例上下文、Agent 管线、SQLite 持久化、RAG 和 MONAI 模块。</p></div>
+    </div>
+  </section>
 
-<span class="file">tools.py</span>:<span class="fn">retrieve_knowledge</span>(<span class="param">detection_context</span>=json_str, <span class="param">reasoning</span>=<span class="str">"..."</span>)
-  <span class="arrow">→</span> search_by_detection(result_dict, top_k=5, threshold=0.7)
-  <span class="arrow">→</span> format_results(results) → str
-  <span class="arrow">→</span> <span class="fn">return</span> knowledge_text
+  <section id="run">
+    <div class="section-head">
+      <div><span class="kicker">08 / RUN</span><h2>启动与依赖关系</h2></div>
+      <p>项目使用本地 <code>monai_learning</code> Conda 环境。首次运行前需要 DeepSeek 兼容 API 配置、视觉权重、Embedding 模型和已导入的 ChromaDB。</p>
+    </div>
+    <pre class="code-block"><span class="comment"># 推荐入口</span>
+<span class="cmd">conda activate monai_learning</span>
+<span class="cmd">cd E:\moani\medical_ai_agent</span>
+<span class="cmd">python -m martin agent</span>
 
-<span class="file">tools.py</span>:<span class="fn">generate_report</span>(<span class="param">detection_result</span>=json_str, <span class="param">report_type</span>=<span class="str">"detailed"</span>, ...)
-  <span class="arrow">→</span> json.loads(detection_result) → result_dict
-  <span class="arrow">→</span> _normalize_detection_result(result_dict)
-  <span class="arrow">→</span> chain.<span class="fn">generate_report</span>(result_dict, report_type, language, case_context)
-      ├─ 一级: create_diagnosis_chain().invoke(...)  <span class="comment"># LCEL 链</span>
-      ├─ 二级: _generate_template_report(...)        <span class="comment"># 模板降级</span>
-      └─ 三级: 返回错误信息
-  <span class="arrow">→</span> <span class="fn">return</span> report_markdown
+<span class="comment"># main.py 目前委托给同一个 handle_agent_v2()</span>
+<span class="cmd">python main.py</span>
 
-<span class="file">tools.py</span>:<span class="fn">update_case_context</span>(<span class="param">user_input</span>=<span class="str">"患者55岁男性"</span>, <span class="param">reasoning</span>=<span class="str">"..."</span>)
-  <span class="arrow">→</span> CaseContext.<span class="fn">extract_patient_info</span>(user_input)  <span class="comment"># LLM 提取</span>
-  <span class="arrow">→</span> CaseContext.<span class="fn">update</span>(patient_info)  <span class="comment"># 更新全局上下文</span>
-  <span class="arrow">→</span> <span class="fn">return</span> <span class="str">"已更新病例上下文"</span>
+<span class="comment"># 首次导入或重建知识库</span>
+<span class="cmd">python scripts\import_knowledge.py</span></pre>
+    <div class="grid-2" style="margin-top:14px">
+      <div class="panel"><h3>本地计算</h3><p>MONAI + PyTorch 执行 CT 推理；BGE 模型生成检索向量；SQLite 和 ChromaDB 保存本地数据。</p></div>
+      <div class="panel"><h3>外部调用</h3><p><code>ChatOpenAI</code> 使用 OpenAI 兼容协议访问配置的 DeepSeek 模型服务，负责 Agent 决策和报告文本生成。</p></div>
+    </div>
+  </section>
 
-<span class="comment"># ═══════════════════════════════════════════</span>
-<span class="comment"># 第 5 层：LCEL 链 (chain.py)</span>
-<span class="comment"># ═══════════════════════════════════════════</span>
-<span class="file">chain.py</span>:<span class="fn">generate_report</span>(detection_result, report_type, language, case_context)
-  <span class="arrow">→</span> chain_input = {
-      <span class="str">"system_prompt"</span>: _get_system_prompt(report_type),
-      <span class="str">"detection_result"</span>: detection_result,
-      <span class="str">"report_type"</span>: report_type,
-      <span class="str">"case_context"</span>: case_context,
-    }
-  <span class="arrow">→</span> chain = <span class="fn">create_diagnosis_chain</span>()
-  <span class="arrow">→</span> chain.<span class="fn">invoke</span>(chain_input)
-      ┌─ RunnablePassthrough.assign(
-      │    knowledge_context → _build_knowledge_context(...)  <span class="comment"># 并行检索知识库</span>
-      │    nodules_detail   → _build_nodules_detail(...)      <span class="comment"># 并行格式化结节</span>
-      │    patient_info     → _build_patient_info(...)        <span class="comment"># 并行构建患者信息</span>
-      │  )
-      ├─ diagnosis_prompt (ChatPromptTemplate)
-      ├─ model (ChatOpenAI DeepSeek)
-      └─ StrOutputParser()
-  <span class="arrow">→</span> <span class="fn">return</span> report
-</div>
+  <section id="boundaries">
+    <div class="section-head">
+      <div><span class="kicker">09 / BOUNDARIES</span><h2>当前版本的真实边界</h2></div>
+      <p>这些不是流程图里的抽象问题，而是继续开发时最值得优先处理的具体事项。</p>
+    </div>
+    <div class="risk-list">
+      <div class="risk"><span class="level">HIGH</span><p><strong>模型权重缺失仍继续运行。</strong> NoduleDetector 当前只记录警告，然后使用未加载训练权重的网络。医疗结果可能无意义，应改为 fail fast。</p></div>
+      <div class="risk"><span class="level">MEDIUM</span><p><strong>CaseContext 没有独立持久化。</strong> SQLite 能恢复聊天消息，但重启后 Python 中的结构化病例对象会重新创建。</p></div>
+      <div class="risk"><span class="level">MEDIUM</span><p><strong>检测工具返回格式化文本。</strong> 下游 JSON 由 LLM 重建，存在字段漂移风险；已有归一化兼容，但更稳妥的是保留结构化工具结果。</p></div>
+      <div class="risk"><span class="level">MEDIUM</span><p><strong>日志包含病例与工具参数。</strong> audit 和 thinking 日志适合开发排查，但用于真实患者数据前需要脱敏、权限控制和保留策略。</p></div>
+      <div class="risk"><span class="level">LOW</span><p><strong>back 命令没有实际导航状态。</strong> open 只查看、不切换，因此 back 当前仅输出提示，可以简化或重新定义详情模式。</p></div>
+      <div class="risk"><span class="level">LOW</span><p><strong>仍是 Alpha CLI。</strong> 尚无 Web UI、用户鉴权、并发会话服务和正式医疗验证，不应作为临床诊断结论使用。</p></div>
+    </div>
+  </section>
+</main>
 
-<!-- ============================== -->
-<h2>三、数据传递全景</h2>
-
-<div class="flow-grid">
-
-<div class="card">
-<span class="section-label s1">入口层</span>
-<h3 style="margin-bottom:8px;font-size:14px;">main.py → agent.invoke()</h3>
-<table class="data-table">
-<tr><th>参数</th><th>值</th></tr>
-<tr><td><code>inputs</code></td><td><code>{"input": "用户输入的文本"}</code></td></tr>
-<tr><td><code>返回值</code></td><td>
-<pre style="font-size:12px;background:#0d1117;padding:8px;border-radius:4px;">{
-  "output": "最终回答文本",
-  "intermediate_steps": [
-    (AgentAction, str),
-    ...
-  ]
-}</pre>
-</td></tr>
-</table>
-</div>
-
-<div class="card">
-<span class="section-label s2">编排层</span>
-<h3 style="margin-bottom:8px;font-size:14px;">AgentExecutor → LangGraph</h3>
-<table class="data-table">
-<tr><th>参数</th><th>值</th></tr>
-<tr><td><code>messages</code></td><td><code>[("system", context_str), ("human", user_input)]</code></td></tr>
-<tr><td><code>config</code></td><td><code>{"configurable": {"thread_id": "default"}}</code></td></tr>
-<tr><td><code>Result</code></td><td>
-<code>{"messages": [SystemMessage, HumanMessage, AIMessage, ToolMessage, ...]}</code>
-</td></tr>
-</table>
-</div>
-
-<div class="card">
-<span class="section-label s3">工具层</span>
-<h3 style="margin-bottom:8px;font-size:14px;">LLM → @tool 函数</h3>
-<table class="data-table">
-<tr><th>Tool</th><th>参数</th><th>返回值</th></tr>
-<tr>
-  <td><code>analyze_image</code></td>
-  <td><code>image_path: str</code><br><code>reasoning: str</code></td>
-  <td>检测结果 JSON 字符串</td>
-</tr>
-<tr>
-  <td><code>retrieve_knowledge</code></td>
-  <td><code>detection_context: str</code><br><code>reasoning: str</code></td>
-  <td>知识库文本</td>
-</tr>
-<tr>
-  <td><code>generate_report</code></td>
-  <td><code>detection_result: str</code><br><code>report_type: str</code><br><code>language: str</code><br><code>case_context: str</code><br><code>reasoning: str</code></td>
-  <td>Markdown 报告</td>
-</tr>
-<tr>
-  <td><code>update_case_context</code></td>
-  <td><code>user_input: str</code><br><code>reasoning: str</code></td>
-  <td>确认消息字符串</td>
-</tr>
-</table>
-</div>
-
-<div class="card">
-<span class="section-label s4">记忆层</span>
-<h3 style="margin-bottom:8px;font-size:14px;">MemorySaver 存储结构</h3>
-<table class="data-table">
-<tr><th>Key</th><th>Value</th></tr>
-<tr><td><code>(thread_id, checkpoint_id)</code></td><td>完整 <code>messages</code> 列表 + Agent 状态</td></tr>
-<tr><td colspan="2" style="font-size:12px;color:var(--text-dim)">
-同一 thread_id → 同一个对话历史<br>
-新消息追加到已有 messages 列表尾部
-</td></tr>
-</table>
-</div>
-
-</div>
-
-<!-- ============================== -->
-<h2>四、LangGraph 推理循环</h2>
-<div class="mermaid-wrapper">
-<div class="mermaid">
-sequenceDiagram
-    participant U as 用户
-    participant M as main.py
-    participant AE as AgentExecutor
-    participant LG as LangGraph
-    participant LLM as DeepSeek LLM
-    participant T as @tool 函数
-
-    U->>M: 输入文本
-    M->>AE: invoke({"input": str})
-    AE->>AE: 构建 messages + config(thread_id)
-    AE->>LG: invoke({"messages": [...]}, config)
-    
-    loop 推理循环
-        LG->>LLM: 调用 LLM
-        LLM-->>LG: AIMessage (含/不含 tool_calls)
-        alt 有 tool_calls
-            LG->>T: 执行工具 (解析 args)
-            T-->>LG: ToolMessage (工具返回结果)
-        else 无 tool_calls
-            LG-->>AE: 最终回答
-        end
-    end
-    
-    AE->>AE: _parse_result() 提取 output
-    AE->>AE: _extract_intermediate_steps()
-    AE->>AE: _sync_case_context_from_steps()
-    AE-->>M: {"output": str, "intermediate_steps": [...]}
-    
-    M->>M: 打印输出
-    M->>M: audit_logger.log_tool_call()
-</div>
-</div>
-
-<!-- ============================== -->
-<h2>五、LCEL 链内部数据流</h2>
-<div class="mermaid-wrapper">
-<div class="mermaid">
-flowchart LR
-    IN["chain_input<br>{detection_result, report_type, case_context}"] --> ASSIGN
-    
-    subgraph ASSIGN["RunnablePassthrough.assign (并行注入)"]
-        direction TB
-        K["_build_knowledge_context<br>→ ChromaDB 检索"]
-        N["_build_nodules_detail<br>→ 格式化结节数据"]
-        P["_build_patient_info<br>→ 从 CaseContext 提取"]
-    end
-    
-    ASSIGN --> PROMPT["ChatPromptTemplate<br>system_prompt + 患者信息 + 结节数据 + 知识库"]
-    PROMPT --> MODEL["ChatOpenAI (DeepSeek)"]
-    MODEL --> PARSE["StrOutputParser"]
-    PARSE --> OUT["📄 Markdown 报告"]
-    
-    OUT --> FALLBACK{"LLM 成功?"}
-    FALLBACK -->|"Yes"| DONE["✅ 返回报告"]
-    FALLBACK -->|"No / Exception"| TEMPLATE["_generate_template_report<br>模板降级"]
-    TEMPLATE --> DONE
-    
-    style ASSIGN fill:#1f6feb22,stroke:#58a6ff
-    style FALLBACK fill:#d2992222,stroke:#d29922
-</div>
-</div>
-
-<!-- ============================== -->
-<h2>六、关键设计要点</h2>
-
-<div class="flow-grid">
-
-<div class="card">
-<h3 style="margin-bottom:8px;font-size:14px;">🔄 三级降级策略</h3>
-<table class="data-table">
-<tr><th>级别</th><th>说明</th></tr>
-<tr><td><span class="badge badge-green">一级</span></td><td>LCEL 链 → LLM + 知识库检索生成报告</td></tr>
-<tr><td><span class="badge badge-orange">二级</span></td><td>模板生成 → 纯 f-string 拼接，不依赖 LLM</td></tr>
-<tr><td><span class="badge badge-red">三级</span></td><td>基本错误信息 → 仅返回患者ID和结节数量</td></tr>
-</table>
-</div>
-
-<div class="card">
-<h3 style="margin-bottom:8px;font-size:14px;">📎 reasoning 审计参数</h3>
-<p style="font-size:13px;color:var(--text-dim);">
-每个工具函数都有一个 <code>reasoning</code> 参数，由 LLM 自动填充思维链过程。<br><br>
-不参与业务逻辑，仅用于：
-</p>
-<ul style="font-size:13px;color:var(--text-dim);padding-left:20px;">
-  <li>审计日志记录</li>
-  <li>AgentLoggingHandler 回调输出</li>
-  <li>医疗决策可追溯</li>
-</ul>
-</div>
-
-<div class="card">
-<h3 style="margin-bottom:8px;font-size:14px;">🏷️ thread_id 统一标识</h3>
-<p style="font-size:13px;color:var(--text-dim);">
-同一个 <code>thread_id</code> 贯穿三个子系统：
-</p>
-<table class="data-table">
-<tr><th>组件</th><th>作用</th></tr>
-<tr><td>MemorySaver</td><td>对话历史分片 key</td></tr>
-<tr><td>CaseContext</td><td>病例上下文缓存 key</td></tr>
-<tr><td>AuditLogger</td><td>审计日志文件名标识</td></tr>
-</table>
-</div>
-
-<div class="card">
-<h3 style="margin-bottom:8px;font-size:14px;">📦 字段归一化</h3>
-<p style="font-size:13px;color:var(--text-dim);">
-<code>_normalize_detection_result()</code> 兼容 LLM 可能产生的不同 JSON key 命名习惯：
-</p>
-<div style="font-size:12px;background:#0d1117;padding:8px;border-radius:4px;color:var(--cyan);">
-diameter_mm → diameter<br>
-confidence → score<br>
-location_x → center.x<br>
-...</div>
-</div>
-
-</div>
-
-<!-- ============================== -->
-<h2>七、文件依赖关系</h2>
-<div class="mermaid-wrapper">
-<div class="mermaid">
-flowchart TB
-    subgraph Entry["入口"]
-        main["main.py"]
-        main_["__main__.py"]
-    end
-    
-    subgraph Agent["Agent 层"]
-        ab["agent_builder.py"]
-        ag["agent.py<br>AgentExecutor + AgentLoggingHandler"]
-        tools["tools.py<br>4 个 @tool"]
-        prompt["prompt.py<br>System Prompt"]
-        cc["case_context.py<br>CaseContext"]
-        audit["audit.py<br>AuditLogger"]
-    end
-    
-    subgraph LLM_Layer["LLM 层"]
-        cm["chat_model.py<br>ChatOpenAI(DeepSeek)"]
-        chain["chain.py<br>LCEL + 模板降级"]
-        dc["deepseek_client.py"]
-    end
-    
-    subgraph RAG["RAG 层"]
-        dl["document_loader.py"]
-        ts["text_splitter.py"]
-        emb["embeddings.py"]
-        vs["vector_store.py<br>ChromaDB"]
-        ret["retriever.py"]
-    end
-    
-    subgraph Vision["视觉层"]
-        nd["nodule_detector.py<br>MONAI"]
-    end
-    
-    subgraph Utils["工具层"]
-        cfg["config.py"]
-        logger["logger.py"]
-        rm["result_manager.py"]
-    end
-    
-    main --> ab
-    main_ --> ag
-    ab --> ag
-    ag --> cm
-    ag --> tools
-    ag --> prompt
-    ag --> audit
-    ag --> cc
-    
-    tools --> chain
-    tools --> nd
-    tools --> ret
-    
-    chain --> cm
-    chain --> ret
-    
-    ret --> vs
-    ret --> emb
-    vs --> emb
-    
-    dl --> ts
-    ts --> emb
-    
-    cm --> cfg
-    chain --> cfg
-    tools --> cfg
-    
-    dc --> cm
-    
-    style Entry fill:#1f6feb22,stroke:#58a6ff
-    style Agent fill:#3fb95022,stroke:#3fb950
-    style LLM_Layer fill:#d2992222,stroke:#d29922
-    style RAG fill:#bc8cff22,stroke:#bc8cff
-    style Vision fill:#f8514922,stroke:#f85149
-    style Utils fill:#39d2c022,stroke:#39d2c0
-</div>
-</div>
-
-</div>
-
-<script>
-mermaid.initialize({
-  theme: 'base',
-  themeVariables: {
-    background: '#ffffff',
-    primaryColor: '#1f6feb',
-    primaryBorderColor: '#58a6ff',
-    primaryTextColor: '#000000',
-    lineColor: '#30363d',
-    secondaryColor: '#3fb950',
-    tertiaryColor: '#d29922',
-    fontSize: '14px',
-    fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif',
-  },
-  sequence: { showSequenceNumbers: true }
-});
-</script>
+<footer>
+  Martin Medical Agent 项目学习地图 · 基于当前 main 分支代码整理 · 更新于 2026-07-14
+</footer>
 </body>
 </html>

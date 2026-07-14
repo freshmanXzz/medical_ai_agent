@@ -20,13 +20,13 @@
     <text x="40" y="93" fill="#7ee787">您好，我是 Martin 医学影像智能体。</text>
     <text x="40" y="116" fill="#c9d1d9">我可以协助分析肺部 CT、检索医学知识并生成结构化报告。</text>
     <text x="40" y="139" fill="#8b949e">当前会话 ID: d9ba2d42</text>
-    <text x="40" y="162" fill="#8b949e">输入问题开始对话；可用命令:</text>
-    <text x="40" y="185" fill="#58a6ff">list, open &lt;编号&gt;, switch &lt;编号&gt;, new, back, exit</text>
+    <text x="40" y="162" fill="#8b949e">直接输入中文或英文开始问诊；输入 /help 查看系统命令。</text>
+    <text x="40" y="185" fill="#58a6ff">/list, /open &lt;编号&gt;, /switch &lt;编号&gt;, /new, /back, /exit</text>
     <text x="40" y="208" fill="#58a6ff">============================================================</text>
 
     <!-- Prompt -->
     <text x="40" y="248" fill="#7ee787">&gt;&gt;&gt;</text>
-    <text x="72" y="248" fill="#ffa657">list</text>
+    <text x="72" y="248" fill="#ffa657">/list</text>
 
     <!-- Session list -->
     <text x="40" y="280" fill="#d2a8ff">=== History Sessions ===</text>
@@ -47,9 +47,9 @@
     <text x="650" y="364" fill="#484f58">(570b99f5)</text>
 
     <text x="40" y="392" fill="#58a6ff">4.</text>
-    <text x="64" y="392" fill="#c9d1d9">list</text>
-    <text x="104" y="392" fill="#8b949e">[2026-07-14 03:34:16]</text>
-    <text x="300" y="392" fill="#484f58">(bd848362)</text>
+    <text x="64" y="392" fill="#c9d1d9">患者58岁女性，体检发现肺结节</text>
+    <text x="330" y="392" fill="#8b949e">[2026-07-14 03:34:16]</text>
+    <text x="520" y="392" fill="#484f58">(bd848362)</text>
 
     <text x="40" y="420" fill="#58a6ff">5.</text>
     <text x="64" y="420" fill="#c9d1d9">你有什么功能吗</text>
@@ -61,7 +61,7 @@
 
     <!-- open 1 -->
     <text x="40" y="500" fill="#7ee787">&gt;&gt;&gt;</text>
-    <text x="72" y="500" fill="#ffa657">open 1</text>
+    <text x="72" y="500" fill="#ffa657">/open 1</text>
 
     <text x="40" y="530" fill="#d2a8ff">=== 8mm的结节是怎么样的 ===</text>
     <text x="40" y="555" fill="#ff7b72">User:</text>

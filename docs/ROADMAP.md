@@ -8,7 +8,7 @@
 |------|------|------|
 | 肺结节检测 | MONAI RetinaNet 3D 检测 | v0.1 |
 | RAG 知识增强 | ChromaDB + BGE 本地向量库 | v0.2 |
-| Agent 多轮对话 | LangGraph + MemorySaver | v0.3 |
+| Agent 多轮对话 | LangGraph + SqliteSaver | v0.3 |
 | 结构化病例记忆 | CaseContext 两层记忆架构 | v0.3 |
 | 多类型报告生成 | brief / detailed / research | v0.2 |
 | LCEL 声明式编排 | Runnable 链 + 三级降级 | v0.3 |

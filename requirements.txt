@@ -24,3 +24,4 @@ langgraph-checkpoint-sqlite>=3.0.0
 # 文档加载（可选，用于 LangChain 的 PDF/Word 支持）
 pypdf>=5.0.0
 python-docx>=1.1.0
+rich>=13.0.0

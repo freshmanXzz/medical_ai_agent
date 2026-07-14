@@ -24,6 +24,9 @@ class TestAgentInitialization:
         assert "reasoning" in SYSTEM_PROMPT
         assert "推理" in SYSTEM_PROMPT
         assert "审计溯源" in SYSTEM_PROMPT
+        assert "模拟专业医生的门诊沟通方式" in SYSTEM_PROMPT
+        assert "中文和英文" in SYSTEM_PROMPT
+        assert "你不是现实中的执业医生" in SYSTEM_PROMPT
 
     def test_create_agent_tool_names(self):
         """测试工具名称正确。"""
