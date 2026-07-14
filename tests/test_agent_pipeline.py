@@ -28,6 +28,13 @@ class TestAgentInitialization:
         assert "中文和英文" in SYSTEM_PROMPT
         assert "你不是现实中的执业医生" in SYSTEM_PROMPT
 
+    def test_report_prompt_does_not_invent_missing_imaging_features(self):
+        from martin.llm.chain import SYS_PROMPT_DETAILED
+
+        assert "世界坐标不得直接推断为肺叶位置" in SYS_PROMPT_DETAILED
+        assert "当前资料无法分级" in SYS_PROMPT_DETAILED
+        assert "不得虚构" in SYS_PROMPT_DETAILED
+
     def test_create_agent_tool_names(self):
         """测试工具名称正确。"""
         from martin.agent.agent import create_agent

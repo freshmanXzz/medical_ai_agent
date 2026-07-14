@@ -5,11 +5,8 @@ from __future__ import annotations
 import re
 from typing import Any, Iterable, Optional
 
-from rich import box
 from rich.console import Console, Group
 from rich.markdown import Markdown
-from rich.panel import Panel
-from rich.rule import Rule
 from rich.table import Table
 from rich.text import Text
 
@@ -21,23 +18,13 @@ class AgentCLI:
         self.console = console or Console(highlight=False, emoji=False)
 
     def welcome(self, session_id: str) -> None:
-        intro = Group(
-            Text("您好，我是 Martin 医学影像智能体。", style="bold bright_green"),
-            Text(
-                "我会像门诊医生一样了解情况，并协助分析肺部 CT、检索医学知识和生成报告。"
-            ),
-            Text("直接输入中文或英文开始问诊；输入 /help 查看系统命令。", style="dim"),
-            Text(f"当前会话: {session_id}", style="dim"),
-        )
         self.console.print()
+        self.console.print(Text("MARTIN / 医学影像智能体", style="bold bright_green"))
         self.console.print(
-            Panel(
-                intro,
-                title="Martin Medical AI Agent",
-                border_style="bright_black",
-                padding=(1, 2),
-            )
+            "您好，我是 Martin。我会像门诊医生一样了解情况，并协助分析肺部 CT、检索医学知识和生成报告。"
         )
+        self.console.print("直接输入中文或英文开始问诊；输入 /help 查看系统命令。")
+        self.console.print(Text(f"当前会话: {session_id}", style="dim"))
         self.console.print()
 
     def prompt(self) -> str:
@@ -49,11 +36,9 @@ class AgentCLI:
     def assistant(self, content: str, is_report: bool = False) -> None:
         renderable: Any = Markdown(self._normalize_markdown(content))
         if is_report or self._looks_like_report(content):
-            renderable = Panel(
+            renderable = Group(
+                Text("病例报告", style="bold bright_magenta"),
                 renderable,
-                title="病例报告",
-                border_style="bright_black",
-                padding=(1, 2),
             )
         self._message("Martin >", renderable, "bold bright_green")
 
@@ -69,10 +54,8 @@ class AgentCLI:
     def help(self) -> None:
         table = Table(
             title="系统命令",
-            box=box.SIMPLE,
-            border_style="bright_black",
+            box=None,
             header_style="bold",
-            show_edge=False,
         )
         table.add_column("命令", style="bright_cyan", no_wrap=True)
         table.add_column("作用")
@@ -91,10 +74,9 @@ class AgentCLI:
     def session_list(self, summaries: Iterable[Any], current_id: str) -> None:
         table = Table(
             title="历史会话",
-            box=box.SIMPLE_HEAD,
-            border_style="bright_black",
+            box=None,
             header_style="bold",
-            expand=True,
+            expand=False,
         )
         table.add_column("#", style="bright_cyan", width=4)
         table.add_column("标题", ratio=3)
@@ -112,10 +94,10 @@ class AgentCLI:
         self.console.print(table)
 
     def history_start(self, title: str) -> None:
-        self.console.print(Rule(Text(f"历史会话 / {title}"), style="bright_black"))
+        self.console.print(Text(f"历史会话 / {title}", style="bold bright_cyan"))
 
     def history_end(self) -> None:
-        self.console.print(Rule("历史记录结束", style="bright_black"))
+        self.console.print(Text("历史记录结束", style="dim"))
 
     def history_message(self, role: str, content: str) -> None:
         if role == "Martin":
@@ -124,7 +106,7 @@ class AgentCLI:
             self.user_message(content)
 
     def _message(self, label: str, renderable: Any, style: str) -> None:
-        layout = Table.grid(padding=(0, 1), expand=True)
+        layout = Table.grid(padding=(0, 1), expand=False)
         layout.add_column(width=10, no_wrap=True)
         layout.add_column(ratio=1, overflow="fold")
         layout.add_row(Text(label, style=style), renderable)

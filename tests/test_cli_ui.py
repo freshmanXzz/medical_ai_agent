@@ -40,7 +40,7 @@ def test_assistant_normalizes_bold_text_followed_by_chinese_content():
     assert "**" not in rendered
 
 
-def test_report_is_rendered_in_a_named_panel():
+def test_report_is_rendered_with_a_named_heading():
     ui, output = _test_ui()
 
     ui.assistant("# 肺部 CT 病例报告\n\n未发现紧急征象。", is_report=True)
@@ -48,6 +48,7 @@ def test_report_is_rendered_in_a_named_panel():
     rendered = output.getvalue()
     assert "病例报告" in rendered
     assert "肺部 CT 病例报告" in rendered
+    assert not any(character in rendered for character in "┌┐└┘─")
 
 
 def test_welcome_identifies_agent_and_session():
@@ -56,5 +57,6 @@ def test_welcome_identifies_agent_and_session():
     ui.welcome("session-001")
 
     rendered = output.getvalue()
-    assert "Martin 医学影像智能体" in rendered
+    assert "MARTIN / 医学影像智能体" in rendered
     assert "session-001" in rendered
+    assert not any(character in rendered for character in "┌┐└┘─")

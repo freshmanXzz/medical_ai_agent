@@ -175,11 +175,11 @@ python -m martin case -i results/detection.json -o report.md --type detailed
 
 ### 运行效果
 
-模拟医生与患者完成多轮问诊、CT 分析和病例报告：
+基于模拟问诊资料和项目实际检测输出生成的完整病例报告：
 
-![医生与患者多轮问诊示例](docs/clinical_consultation_demo.svg)
+![肺部 CT 智能辅助病例报告](docs/case_report_demo.png)
 
-该图片由真实终端 UI 组件生成，可运行 `python scripts/render_consultation_demo.py` 重新导出，确保 README 展示与实际界面保持一致。
+患者信息在图片中明确标注为模拟，结节数量、尺寸、坐标和置信度来自项目实际运行数据。可运行 `python scripts/render_case_report_demo.py` 重新生成固定尺寸 PNG，缩放时不会发生 SVG 字体重叠。
 
 历史会话查看效果：
 
