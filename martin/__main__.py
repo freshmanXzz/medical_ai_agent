@@ -15,6 +15,11 @@ import argparse
 import sys
 import os
 
+if hasattr(sys.stdout, "reconfigure"):
+    sys.stdout.reconfigure(errors="replace")
+if hasattr(sys.stderr, "reconfigure"):
+    sys.stderr.reconfigure(errors="replace")
+
 def main():
     parser = argparse.ArgumentParser(
         prog="Martin",
@@ -94,7 +99,7 @@ def main():
     elif args.command == "info":
         run_info(args)
     elif args.command == "agent":
-        handle_agent(args)
+        handle_agent_v2(args)
 
 def run_detect(args):
     """执行结节检测"""
@@ -194,7 +199,7 @@ def run_info(args):
     print(f"总像素数: {info['voxel_count']:,}")
     print(f"数据范围: [{info['data_range'][0]}, {info['data_range'][1]}]")
 
-def handle_agent(args):
+def handle_agent_legacy(args):
     """处理 agent 命令，支持多轮对话。"""
     from martin.agent.agent_builder import build_agent
     from martin.agent.audit import AuditLogger
@@ -266,6 +271,142 @@ def handle_agent(args):
 
         # 首轮结束后，后续输入靠 input()
         user_input = None
+
+
+def handle_agent_v2(args):
+    """Run the interactive agent with persistent session navigation."""
+    from martin.agent.agent_builder import build_agent
+    from martin.agent.audit import AuditLogger
+    from martin.agent.sessions import (
+        SessionManager,
+        close_default_checkpointer,
+        get_default_checkpointer,
+    )
+
+    checkpointer = get_default_checkpointer()
+    session_manager = SessionManager(checkpointer)
+
+    def start_session(session_id=None):
+        audit_logger = AuditLogger(session_id=session_id)
+        executor = build_agent(
+            verbose=True,
+            thread_id=audit_logger.session_id,
+            checkpointer=checkpointer,
+        )
+        return audit_logger, executor
+
+    audit_logger, agent_executor = start_session()
+    print("=" * 60)
+    print("您好，我是 Martin 医学影像智能体。")
+    print("我可以协助分析肺部 CT、检索医学知识并生成结构化报告。")
+    print(f"当前会话 ID: {audit_logger.session_id}")
+    print("输入问题开始对话；可用命令: list, open <编号>, switch <编号>, new, back, exit")
+    print("=" * 60)
+    print()
+
+    first_input = None
+    if args.image:
+        first_input = (
+            f"Analyze CT image: {args.image}; "
+            f"generate a {args.report_type} report in {args.language}."
+        )
+
+    user_input = first_input
+    try:
+        while True:
+            if user_input is None:
+                try:
+                    user_input = input(">>> ").strip()
+                except (EOFError, KeyboardInterrupt):
+                    print("\nSession ended. History was saved.")
+                    break
+                if not user_input:
+                    user_input = None
+                    continue
+                command, _, argument = user_input.partition(" ")
+                command = command.lower()
+
+                if command in ("exit", "quit", "\u9000\u51fa"):
+                    print("Session ended. History was saved.")
+                    break
+                if command in ("list", "sessions", "\u5386\u53f2"):
+                    summaries = session_manager.list_sessions()
+                    if not summaries:
+                        print("No history sessions.")
+                    else:
+                        print("\n=== History Sessions ===")
+                        for index, summary in enumerate(summaries, 1):
+                            timestamp = summary.updated_at.replace("T", " ")[:19]
+                            marker = " *" if summary.thread_id == audit_logger.session_id else ""
+                            print(
+                                f"{index}. {summary.title} [{timestamp}] "
+                                f"({summary.thread_id}){marker}"
+                            )
+                        print()
+                    user_input = None
+                    continue
+                if command == "open":
+                    summaries = session_manager.list_sessions()
+                    selection = argument.strip() or input("Session number: ").strip()
+                    try:
+                        selected = summaries[int(selection) - 1]
+                    except (ValueError, IndexError):
+                        print("Invalid session number.")
+                        user_input = None
+                        continue
+                    print(f"\n=== {selected.title} ===")
+                    messages = session_manager.get_messages(selected.thread_id)
+                    if not messages:
+                        print("This session has no displayable messages.")
+                    else:
+                        for message in messages:
+                            print(f"{message.role}: {message.content}\n")
+                    print("=== End of History ===\n")
+                    user_input = None
+                    continue
+                if command == "switch":
+                    summaries = session_manager.list_sessions()
+                    selection = argument.strip() or input("Session number: ").strip()
+                    try:
+                        selected = summaries[int(selection) - 1]
+                    except (ValueError, IndexError):
+                        print("Invalid session number.")
+                        user_input = None
+                        continue
+                    audit_logger, agent_executor = start_session(selected.thread_id)
+                    print(f"Switched to session: {selected.title} ({selected.thread_id})")
+                    user_input = None
+                    continue
+                if command == "new":
+                    audit_logger, agent_executor = start_session()
+                    print(f"New session: {audit_logger.session_id}")
+                    user_input = None
+                    continue
+                if command == "back":
+                    print("Returned to the current session.")
+                    user_input = None
+                    continue
+
+            try:
+                result = agent_executor.invoke({"input": user_input})
+                output = result.get("output", "")
+                for action, action_output in result.get("intermediate_steps", []):
+                    audit_logger.log_tool_call(
+                        tool_name=action.tool,
+                        args=action.tool_input,
+                        output_summary=str(action_output)[:500],
+                    )
+                if output:
+                    print(f"\n{output}\n")
+                if args.image and output:
+                    _save_agent_report(output, args)
+            except Exception as exc:
+                error_msg = f"Agent execution failed: {exc}"
+                print(error_msg)
+                audit_logger.log_agent_error(str(exc))
+            user_input = None
+    finally:
+        close_default_checkpointer()
 
 
 def _save_agent_report(report: str, args) -> str:

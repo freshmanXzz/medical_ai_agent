@@ -18,7 +18,7 @@ from langchain_core.agents import AgentAction
 from langchain_core.callbacks import BaseCallbackHandler
 from langchain_core.messages import AIMessage, SystemMessage, ToolMessage
 from langchain_core.tools import BaseTool
-from langgraph.checkpoint.memory import MemorySaver
+from langgraph.checkpoint.base import BaseCheckpointSaver
 
 from martin.agent import (
     analyze_image,
@@ -30,6 +30,7 @@ from martin.agent.prompt import SYSTEM_PROMPT
 from martin.agent.case_context import CaseContext
 from martin.agent.tools import reset_case_context, set_case_context
 from martin.llm.chat_model import get_chat_model
+from martin.agent.sessions import get_default_checkpointer
 
 logger = logging.getLogger(__name__)
 
@@ -73,11 +74,9 @@ def _get_thinking_logger() -> logging.Logger:
 # ─── 日志回调 ───────────────────────────────────────────────
 
 class AgentLoggingHandler(BaseCallbackHandler):
-    """LangChain 回调处理器，打印 Agent 中间步骤日志。
+    """LangChain 回调处理器，记录 Agent 中间步骤日志。
 
-    同时输出到：
-    - 控制台（精简，reasoning 截断 200 字）
-    - log/agent_thinking/YYYY-MM-DD.log（完整内容，含时间戳）
+    仅输出到 log/agent_thinking/YYYY-MM-DD.log（完整内容，含时间戳）。
     """
 
     def __init__(self):
@@ -127,19 +126,6 @@ class AgentLoggingHandler(BaseCallbackHandler):
         )
         self._current_tool_args = self._extract_args(tool_args)
 
-        # --- 控制台输出（精简，截断 reasoning） ---
-        print(f"[Agent] 调用工具: {tool_name}")
-        print(f"[Agent] 工具参数: {self._current_tool_args}")
-        if self._current_reasoning:
-            preview = (
-                self._current_reasoning[:200] + "..."
-                if len(self._current_reasoning) > 200
-                else self._current_reasoning
-            )
-            print(f"[Agent] 推理过程: {preview}")
-        else:
-            print("[Agent] 警告: reasoning 字段缺失")
-
         # --- 思维日志文件（完整内容） ---
         self._thinking_logger.info(
             "[%s] 调用工具: %s", "Agent", tool_name
@@ -160,11 +146,6 @@ class AgentLoggingHandler(BaseCallbackHandler):
         """工具执行完毕后打印 Observation 日志。"""
         # langgraph 传递的是 ToolMessage 对象
         content = output.content if hasattr(output, "content") else str(output)
-
-        # --- 控制台（截断） ---
-        summary = content[:200] + "..." if len(content) > 200 else content
-        print(f"[Agent] 观察结果: {summary}")
-        print()
 
         # --- 思维日志文件（完整） ---
         self._thinking_logger.info(
@@ -198,6 +179,7 @@ class AgentExecutor:
         tools: List[BaseTool],
         verbose: bool = True,
         thread_id: Optional[str] = None,
+        checkpointer: Optional[BaseCheckpointSaver] = None,
     ):
         self.tools = tools
         self.verbose = verbose
@@ -213,7 +195,7 @@ class AgentExecutor:
         llm = get_chat_model()
 
         # 会话记忆：同一 thread_id 的多次 invoke 自动保持历史
-        memory = MemorySaver()
+        memory = checkpointer or get_default_checkpointer()
 
         self._agent = create_langchain_agent(
             model=llm,
@@ -349,6 +331,7 @@ def create_agent(
     tools: Optional[List[BaseTool]] = None,
     verbose: bool = True,
     thread_id: Optional[str] = None,
+    checkpointer: Optional[BaseCheckpointSaver] = None,
 ) -> AgentExecutor:
     """创建 Agent 执行器。
 
@@ -367,4 +350,9 @@ def create_agent(
             generate_report,
             update_case_context,
         ]
-    return AgentExecutor(tools=tools, verbose=verbose, thread_id=thread_id)
+    return AgentExecutor(
+        tools=tools,
+        verbose=verbose,
+        thread_id=thread_id,
+        checkpointer=checkpointer,
+    )

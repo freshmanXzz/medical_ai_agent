@@ -157,12 +157,12 @@ Martin: 您好！我是 Martin 医学智能体，有什么可以帮您？
 
 User: 分析这张CT: data/test.nii.gz
 
-[Agent] 调用工具: analyze_image
-[Agent] 调用工具: retrieve_knowledge
-[Agent] 调用工具: generate_report
+（LLM 自动调用 analyze_image → retrieve_knowledge → generate_report）
 
 Martin: 已完成分析，检测到 3 个肺结节...
 ```
+
+> 工具调用详情和推理过程写入 `log/agent_thinking/YYYY-MM-DD.log`，不干扰对话界面。
 
 ### 方式 2：命令行检测
 
@@ -175,6 +175,23 @@ python -m martin case -i results/detection.json -o report.md --type detailed
 ```
 
 ---
+
+## 🗂️ 会话历史
+
+Agent 会将会话保存到 `data/sessions.sqlite`。启动 `python main.py` 后，在对话提示符中可以使用：
+
+```text
+list              列出所有历史会话
+open <编号>       查看指定会话的完整对话记录
+switch <编号>     切换到指定会话并继续对话
+new               创建并切换到新会话
+back              返回当前会话
+exit              退出并保存会话
+```
+
+会话标题默认取首条用户消息。SQLite 文件由 LangGraph 官方 `SqliteSaver` 管理，应用重启后仍可继续查看历史会话。
+
+![CLI 会话历史与多轮对话运行效果](docs/session_history_demo.svg)
 
 ## 📚 Documentation
 
