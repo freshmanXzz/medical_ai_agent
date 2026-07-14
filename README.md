@@ -13,6 +13,7 @@ Martin 是一个开源的医学影像 AI Agent，以肺结节检测为切入点�
 - 🤖 **Agent 智能编排** — LangChain 1.x + LangGraph，多工具自主规划与调用
 - 🧠 **结构化病例记忆** — CaseContext 两层记忆架构，Token 高效利用
 - 📄 **多类型报告生成** — brief / detailed / research 三档，LCEL 声明式编排
+- 💾 **会话持久化** — SqliteSaver + 历史管理，list/open/switch，重启不丢失
 - 📝 **医疗审计溯源** — reasoning 字段 + JSONL 审计日志，全程可追溯
 - 🖥 **GPU 加速推理** — CUDA 加速，支持本地模型部署
 
@@ -150,17 +151,13 @@ python scripts/import_knowledge.py
 python main.py
 ```
 
-**交互示例：**
+启动后可在对话中直接提问，Agent 会自主决定调用工具：
 
-```
-Martin: 您好！我是 Martin 医学智能体，有什么可以帮您？
-
-User: 分析这张CT: data/test.nii.gz
-
-（LLM 自动调用 analyze_image → retrieve_knowledge → generate_report）
-
-Martin: 已完成分析，检测到 3 个肺结节...
-```
+| 用户提问 | Agent 行为 |
+|---------|-----------|
+| "8mm的结节是怎么样的" | → `retrieve_knowledge(query=...)` 检索知识库 |
+| "分析这张CT: data/test.nii.gz" | → `analyze_image` → `retrieve_knowledge` → `generate_report` |
+| "患者55岁男性，吸烟10年" | → `update_case_context` 更新病例信息 |
 
 > 工具调用详情和推理过程写入 `log/agent_thinking/YYYY-MM-DD.log`，不干扰对话界面。
 
@@ -174,24 +171,24 @@ python -m martin detect -i data/ct.nii.gz -o results/detection.json
 python -m martin case -i results/detection.json -o report.md --type detailed
 ```
 
+### 运行效果
+
+![多轮对话与知识库检索](docs/session_history_demo.svg)
+
 ---
 
 ## 🗂️ 会话历史
 
-Agent 会将会话保存到 `data/sessions.sqlite`。启动 `python main.py` 后，在对话提示符中可以使用：
+Agent 会将会话保存到 `data/sessions.sqlite`（LangGraph 官方 `SqliteSaver` 管理），应用重启后仍可继续查看历史会话。
 
-```text
-list              列出所有历史会话
-open <编号>       查看指定会话的完整对话记录
-switch <编号>     切换到指定会话并继续对话
-new               创建并切换到新会话
-back              返回当前会话
-exit              退出并保存会话
-```
-
-会话标题默认取首条用户消息。SQLite 文件由 LangGraph 官方 `SqliteSaver` 管理，应用重启后仍可继续查看历史会话。
-
-![CLI 会话历史与多轮对话运行效果](docs/session_history_demo.svg)
+| 命令 | 功能 |
+|------|------|
+| `list` | 列出所有历史会话 |
+| `open <编号>` | 查看指定会话的完整对话记录 |
+| `switch <编号>` | 切换到指定会话并继续对话 |
+| `new` | 创建并切换到新会话 |
+| `back` | 返回当前会话 |
+| `exit` | 退出并保存会话 |
 
 ## 📚 Documentation
 
@@ -213,6 +210,7 @@ exit              退出并保存会话
 | ✅ | RAG 知识增强 | ChromaDB + BGE 本地向量库 |
 | ✅ | Agent 多轮对话 | LangGraph + MemorySaver |
 | ✅ | 结构化病例记忆 | CaseContext |
+| ✅ | Session 持久化 | SqliteSaver + CLI 历史管理 |
 | 🔲 | 多模态融合 | 融合 DICOM 元数据、病理报告等 |
 | 🔲 | 多 Agent 协作 | 检测 Agent + 诊断 Agent + 报告 Agent |
 | 🔲 | 分割能力 | 增加结节分割与体积测量 |
