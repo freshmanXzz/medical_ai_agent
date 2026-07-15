@@ -258,7 +258,7 @@ def handle_agent_legacy(args):
                 break
 
         try:
-            # 执行 Agent（MemorySaver 自动管理对话历史）
+            # 执行旧版 Agent（LangGraph Checkpointer 自动管理对话历史）
             result = agent_executor.invoke({"input": user_input})
             output = result.get("output", "")
 
@@ -316,26 +316,33 @@ def _print_agent_help(ui=None) -> None:
 
 def handle_agent_v2(args):
     """Run the interactive agent with persistent session navigation."""
-    from martin.agent.agent_builder import build_agent
-    from martin.agent.audit import AuditLogger
-    from martin.agent.cli_ui import AgentCLI
-    from martin.agent.sessions import (
-        SessionManager,
-        close_default_checkpointer,
-        get_default_checkpointer,
-    )
+    from martin.utils.logger import AppLogger
+    from martin.utils.runtime_output import capture_runtime_output
 
-    checkpointer = get_default_checkpointer()
+    AppLogger.disable_console_output()
+    with capture_runtime_output():
+        from martin.agent.agent_builder import build_agent
+        from martin.agent.audit import AuditLogger
+        from martin.agent.cli_ui import AgentCLI
+        from martin.agent.sessions import (
+            SessionManager,
+            close_default_checkpointer,
+            get_default_checkpointer,
+        )
+
+    with capture_runtime_output():
+        checkpointer = get_default_checkpointer()
     session_manager = SessionManager(checkpointer)
     ui = AgentCLI()
 
     def start_session(session_id=None):
         audit_logger = AuditLogger(session_id=session_id)
-        executor = build_agent(
-            verbose=True,
-            thread_id=audit_logger.session_id,
-            checkpointer=checkpointer,
-        )
+        with capture_runtime_output():
+            executor = build_agent(
+                verbose=True,
+                thread_id=audit_logger.session_id,
+                checkpointer=checkpointer,
+            )
         return audit_logger, executor
 
     audit_logger, agent_executor = start_session()
@@ -426,7 +433,8 @@ def handle_agent_v2(args):
                     continue
 
             try:
-                result = agent_executor.invoke({"input": user_input})
+                with capture_runtime_output():
+                    result = agent_executor.invoke({"input": user_input})
                 output = result.get("output", "")
                 intermediate_steps = result.get("intermediate_steps", [])
                 for action, action_output in intermediate_steps:

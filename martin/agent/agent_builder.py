@@ -27,7 +27,7 @@ def build_agent(
     1. 加载 LLM — 调用 get_chat_model()，验证 LLM 可用性
     2. 加载 Tools — 由 create_agent() 内部默认加载三个核心工具
     3. 加载 Prompt — 由 create_agent() 内部使用 SYSTEM_PROMPT
-    4. 加载 Memory — 由 AgentExecutor.__init__ 内部创建 MemorySaver
+    4. 加载 Memory — 使用传入或默认的 LangGraph SqliteSaver
     5. 加载 Logger — verbose=True 启用 AgentLoggingHandler
     6. 创建 AgentExecutor — 调用 create_agent()
 

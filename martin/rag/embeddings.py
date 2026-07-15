@@ -18,7 +18,7 @@ logger = logging.getLogger(__name__)
 _embeddings: HuggingFaceEmbeddings | None = None
 
 
-def get_embeddings(show_progress: bool = True) -> HuggingFaceEmbeddings:
+def get_embeddings(show_progress: bool = False) -> HuggingFaceEmbeddings:
     """获取 HuggingFace Embeddings 实例（带缓存）。
 
     首次调用时根据配置加载模型，后续调用复用缓存的实例。
@@ -27,7 +27,7 @@ def get_embeddings(show_progress: bool = True) -> HuggingFaceEmbeddings:
       - CUDA 不可用时自动回退到 CPU
 
     Args:
-        show_progress: 首次加载时是否显示下载进度条。默认为 True。
+        show_progress: 是否显示进度条。默认关闭，避免污染交互式终端。
 
     Returns:
         HuggingFaceEmbeddings 实例。

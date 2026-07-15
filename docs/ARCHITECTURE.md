@@ -62,8 +62,8 @@ class AgentExecutor:
 
 | 层级 | 实现 | 存储内容 | 生命周期 |
 |------|------|----------|----------|
-| **对话记忆** | LangGraph MemorySaver | 完整 messages 列表 | 同一会话内持久化 |
-| **病例记忆** | CaseContext（结构化数据类） | 患者信息/结节/知识摘要/临床备注 | 同一会话内持久化 |
+| **对话记忆** | LangGraph SqliteSaver | 完整 messages 列表 | 跨进程重启持久化 |
+| **病例记忆** | CaseContext（结构化数据类） | 患者信息/结节/知识摘要/临床备注 | 当前 Python 进程 |
 
 **设计考量**：
 
@@ -181,13 +181,14 @@ def get_case_context() -> CaseContext:
 
 ## 六、日志与审计
 
-### 6.1 三类日志
+### 6.1 四类日志
 
 | 日志类型 | 路径 | 内容 |
 |----------|------|------|
 | 系统日志 | `log/YYYY-MM-DD.log` | 模块运行信息、错误 |
 | 思维日志 | `log/agent_thinking/YYYY-MM-DD.log` | LLM 调用、工具调用参数、完整 reasoning |
 | 审计日志 | `audit/{session_id}.jsonl` | 结构化工具调用记录，可用于医疗审计 |
+| 运行输出 | `log/runtime/YYYY-MM-DD.log` | 第三方 warning、模型加载信息和进度条 |
 
 ### 6.2 审计日志格式
 
@@ -210,6 +211,6 @@ def get_case_context() -> CaseContext:
 | Agent 框架 | LangChain 1.x + LangGraph | 生态成熟，StateGraph 灵活可控 |
 | LLM 接入 | ChatOpenAI 兼容层 | 可切换不同 OpenAI 兼容模型 |
 | 向量库 | ChromaDB 本地 | 轻量、无需服务、本地持久化 |
-| 记忆方案 | 双层（MemorySaver + CaseContext） | 对话历史 + 结构化数据各司其职 |
+| 记忆方案 | 双层（SqliteSaver + CaseContext） | 持久对话历史 + 进程内结构化数据各司其职 |
 | 报告生成 | LCEL 链 + 三级降级 | 声明式编排 + 鲁棒性保证 |
 | 上下文注入 | 结构化字符串注入 | Token 高效、上下文精准 |

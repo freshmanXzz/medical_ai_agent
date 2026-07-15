@@ -26,6 +26,7 @@ class AppLogger:
     """
     
     _instances = {}
+    _console_enabled = True
     
     def __new__(cls, name: str = __name__, log_dir: str = None):
         """单例模式实现"""
@@ -75,9 +76,10 @@ class AppLogger:
         )
         
         # 控制台处理器
-        console_handler = logging.StreamHandler()
-        console_handler.setFormatter(formatter)
-        self._logger.addHandler(console_handler)
+        if self._console_enabled:
+            console_handler = logging.StreamHandler()
+            console_handler.setFormatter(formatter)
+            self._logger.addHandler(console_handler)
         
         # 文件处理器（按日期分割）
         log_filename = datetime.now().strftime("%Y-%m-%d") + ".log"
@@ -85,6 +87,22 @@ class AppLogger:
         file_handler = logging.FileHandler(log_filepath, encoding='utf-8', mode='a')
         file_handler.setFormatter(formatter)
         self._logger.addHandler(file_handler)
+        self._logger.propagate = False
+
+    @classmethod
+    def disable_console_output(cls) -> None:
+        """Disable console handlers while preserving file logging."""
+        cls._console_enabled = False
+        for instance in cls._instances.values():
+            logger = getattr(instance, "_logger", None)
+            if logger is None:
+                continue
+            for handler in logger.handlers[:]:
+                if isinstance(handler, logging.StreamHandler) and not isinstance(
+                    handler, logging.FileHandler
+                ):
+                    logger.removeHandler(handler)
+                    handler.close()
     
     def get_logger(self) -> logging.Logger:
         """获取日志实例"""

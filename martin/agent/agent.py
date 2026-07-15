@@ -1,6 +1,6 @@
 """Agent 编排模块
 
-完整迁移至 langchain 1.x：create_agent + MemorySaver 会话记忆。
+完整迁移至 langchain 1.x：create_agent + SqliteSaver 会话记忆。
 底层走 DeepSeek 原生 Function Calling，通过 Prompt 强制 reasoning 字段。
 
 日志分离：
@@ -166,7 +166,7 @@ class AgentLoggingHandler(BaseCallbackHandler):
 class AgentExecutor:
     """基于 langchain 1.x 的 Agent 执行器。
 
-    使用 create_agent + MemorySaver 构建，
+    使用 create_agent + LangGraph Checkpointer 构建，
     自动保持多轮对话记忆，底层走 DeepSeek 原生 Function Calling。
     支持在同一会话（thread_id）的多个实例间共享病例上下文。
     """
@@ -215,7 +215,7 @@ class AgentExecutor:
 
         Args:
             inputs: 输入字典，必须含 "input" 字段。
-                    "chat_history" 字段不需传入，由 MemorySaver 自动管理。
+                    "chat_history" 字段不需传入，由 LangGraph Checkpointer 自动管理。
 
         Returns:
             含 "output" 和 "intermediate_steps" 的字典。

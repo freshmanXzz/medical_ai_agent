@@ -60,7 +60,7 @@ flowchart LR
 
 | 层级 | 实现 | 作用 |
 |------|------|------|
-| 对话记忆 | LangGraph MemorySaver | 保存完整消息历史 |
+| 对话记忆 | LangGraph SqliteSaver | 保存完整消息历史，支持重启恢复 |
 | 病例记忆 | CaseContext（结构化） | 患者信息 / 结节数据 / 知识摘要 / 临床备注 |
 
 ---
@@ -161,7 +161,7 @@ python main.py
 
 Agent 会模拟医生门诊的沟通方式：先了解就诊原因和患者信息，再结合 CT 检测、医学知识库完成解释与病例报告。它会明确说明自己是 AI 智能体，不代替执业医生诊断。普通中文或英文都直接输入；只有以 `/` 开头的内容才作为系统命令处理。
 
-> 工具调用详情和推理过程写入 `log/agent_thinking/YYYY-MM-DD.log`，不干扰对话界面。
+> 工具调用详情和推理过程写入 `log/agent_thinking/YYYY-MM-DD.log`；模型日志、第三方警告和进度条写入 `log/runtime/YYYY-MM-DD.log`，不会进入问诊界面。
 
 ### 方式 2：命令行检测
 
@@ -210,6 +210,8 @@ Agent 会将会话保存到 `data/sessions.sqlite`（LangGraph 官方 `SqliteSav
 | [🏗 Architecture](docs/ARCHITECTURE.md) | 系统架构设计、模块职责、数据流 |
 | [🛠 Development](docs/DEVELOPMENT.md) | 开发过程、技术决策、踩坑记录 |
 | [📚 Learning Summary](docs/LEARNING_SUMMARY.md) | 学习笔记与心得体会 |
+| [📖 Learning Guide](docs/LEARNING_GUIDE.md) | 当前代码调用链、模块作用与学习顺序 |
+| [🧹 Cleanup Audit](docs/CLEANUP_AUDIT.md) | 重复测试、假通过风险和文件清理候选 |
 | [🗺 Roadmap](docs/ROADMAP.md) | 未来规划与演进路线 |
 | [🌐 Agent Flow](docs/agent_flow.html) | 交互式 Agent 调用流程可视化（浏览器打开） |
 
