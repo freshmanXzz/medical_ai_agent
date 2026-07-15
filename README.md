@@ -179,8 +179,6 @@ python -m martin case -i results/detection.json -o report.md --type detailed
 
 ![肺部 CT 智能辅助病例报告](docs/case_report_demo.png)
 
-患者信息在图片中明确标注为模拟，结节数量、尺寸、坐标和置信度来自项目实际运行数据。可运行 `python scripts/render_case_report_demo.py` 重新生成固定尺寸 PNG，缩放时不会发生 SVG 字体重叠。
-
 历史会话查看效果：
 
 ![多轮对话与知识库检索](docs/session_history_demo.svg)
