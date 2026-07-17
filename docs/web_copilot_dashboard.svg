@@ -1,0 +1,94 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1280" height="800" viewBox="0 0 1280 800" font-family="Inter, 'Microsoft YaHei', Arial, sans-serif">
+  <defs>
+    <filter id="shadow" x="-10%" y="-10%" width="120%" height="120%">
+      <feDropShadow dx="0" dy="2" stdDeviation="4" flood-opacity="0.15"/>
+    </filter>
+    <linearGradient id="brandGrad" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0%" stop-color="#16875b"/>
+      <stop offset="100%" stop-color="#24a06b"/>
+    </linearGradient>
+  </defs>
+
+  <!-- 背景 -->
+  <rect width="1280" height="800" fill="#f4f6f8"/>
+
+  <!-- 左侧导航 -->
+  <rect x="0" y="0" width="216" height="800" fill="#17212b"/>
+  <text x="22" y="52" fill="#ffffff" font-size="22" font-weight="700">Martin</text>
+  <text x="22" y="74" fill="#9fb0bf" font-size="12">影像 Copilot</text>
+
+  <!-- 导航菜单 -->
+  <rect x="0" y="110" width="216" height="44" fill="#1f2c39"/>
+  <rect x="0" y="110" width="3" height="44" fill="#41c58a"/>
+  <text x="22" y="138" fill="#41c58a" font-size="14">首页</text>
+
+  <text x="22" y="182" fill="#d7dee6" font-size="14">病例工作区</text>
+  <text x="22" y="226" fill="#d7dee6" font-size="14">报告</text>
+  <text x="22" y="270" fill="#d7dee6" font-size="14">病例管理</text>
+
+  <!-- 主内容区 -->
+  <rect x="238" y="24" width="1024" height="752" rx="4" fill="#f4f6f8"/>
+
+  <!-- 标题区 -->
+  <text x="262" y="62" fill="#1f2933" font-size="26" font-weight="700">Martin</text>
+  <text x="262" y="88" fill="#6b7785" font-size="14">AI Medical Imaging Copilot</text>
+  <text x="262" y="108" fill="#97a0ab" font-size="13">医学影像分析 · 病例辅助理解 · 影像报告生成</text>
+
+  <!-- 新建病例按钮 -->
+  <rect x="1130" y="48" width="120" height="36" rx="4" fill="url(#brandGrad)" filter="url(#shadow)"/>
+  <text x="1190" y="71" fill="#ffffff" font-size="13" text-anchor="middle">新建病例分析</text>
+
+  <!-- 状态卡片 -->
+  <rect x="262" y="140" width="312" height="86" rx="6" fill="#ffffff" stroke="#dfe4e8" filter="url(#shadow)"/>
+  <text x="278" y="166" fill="#6b7785" font-size="13">系统状态</text>
+  <rect x="278" y="180" width="64" height="24" rx="12" fill="#e5f5ec"/>
+  <circle cx="290" cy="192" r="3" fill="#16875b"/>
+  <text x="300" y="196" fill="#16875b" font-size="12">运行中</text>
+
+  <rect x="598" y="140" width="312" height="86" rx="6" fill="#ffffff" stroke="#dfe4e8" filter="url(#shadow)"/>
+  <text x="614" y="166" fill="#6b7785" font-size="13">当前病例</text>
+  <text x="614" y="202" fill="#1f2933" font-size="16" font-weight="600">d9ba2d42-1a3b</text>
+
+  <rect x="934" y="140" width="312" height="86" rx="6" fill="#ffffff" stroke="#dfe4e8" filter="url(#shadow)"/>
+  <text x="950" y="166" fill="#6b7785" font-size="13">历史病例</text>
+  <text x="950" y="202" fill="#1f2933" font-size="16" font-weight="600">14 个</text>
+
+  <!-- 最近病例分析记录 -->
+  <rect x="262" y="250" width="984" height="500" rx="6" fill="#ffffff" stroke="#dfe4e8" filter="url(#shadow)"/>
+  <text x="282" y="284" fill="#1f2933" font-size="18" font-weight="600">最近病例分析记录</text>
+  <text x="1210" y="284" fill="#16875b" font-size="13" text-anchor="end">查看全部</text>
+  <line x1="282" y1="300" x2="1226" y2="300" stroke="#edf0f2"/>
+
+  <!-- 病例记录 1 -->
+  <rect x="282" y="316" width="944" height="56" fill="transparent"/>
+  <text x="282" y="342" fill="#1f2933" font-size="14" font-weight="600">分析这张CT: 1.3.6.1.4.1.14519...112.nii.gz</text>
+  <text x="282" y="362" fill="#7b8792" font-size="12">2026-07-14 12:54</text>
+  <text x="1210" y="350" fill="#16875b" font-size="13" text-anchor="end">打开</text>
+  <line x1="282" y1="380" x2="1226" y2="380" stroke="#edf0f2"/>
+
+  <!-- 病例记录 2 -->
+  <text x="282" y="406" fill="#1f2933" font-size="14" font-weight="600">8mm的结节是怎么样的</text>
+  <text x="282" y="426" fill="#7b8792" font-size="12">2026-07-14 04:57</text>
+  <text x="1210" y="414" fill="#16875b" font-size="13" text-anchor="end">打开</text>
+  <line x1="282" y1="444" x2="1226" y2="444" stroke="#edf0f2"/>
+
+  <!-- 病例记录 3 -->
+  <text x="282" y="470" fill="#1f2933" font-size="14" font-weight="600">患者58岁女性，体检发现肺结节</text>
+  <text x="282" y="490" fill="#7b8792" font-size="12">2026-07-14 03:54</text>
+  <text x="1210" y="478" fill="#16875b" font-size="13" text-anchor="end">打开</text>
+  <line x1="282" y1="508" x2="1226" y2="508" stroke="#edf0f2"/>
+
+  <!-- 病例记录 4 -->
+  <text x="282" y="534" fill="#1f2933" font-size="14" font-weight="600">生成详细报告</text>
+  <text x="282" y="554" fill="#7b8792" font-size="12">2026-07-12 19:29</text>
+  <text x="1210" y="542" fill="#16875b" font-size="13" text-anchor="end">打开</text>
+  <line x1="282" y1="572" x2="1226" y2="572" stroke="#edf0f2"/>
+
+  <!-- 病例记录 5 -->
+  <text x="282" y="598" fill="#1f2933" font-size="14" font-weight="600">结合患者年龄重新评估结节风险</text>
+  <text x="282" y="618" fill="#7b8792" font-size="12">2026-07-12 15:40</text>
+  <text x="1210" y="606" fill="#16875b" font-size="13" text-anchor="end">打开</text>
+
+  <!-- 底部标识 -->
+  <text x="640" y="770" fill="#97a0ab" font-size="11" text-anchor="middle">AI Medical Imaging Copilot for Clinicians · 呼吸科 / 胸外科 / 影像科</text>
+</svg>

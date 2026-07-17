@@ -1,8 +1,10 @@
-# Martin — Medical AI Agent
+# Martin — AI Medical Imaging Copilot for Clinicians
 
-> 面向肺部 CT 的智能体：MONAI 影像检测 + RAG 知识增强 + LangChain Agent 编排 + DeepSeek 推理
+> 面向临床医生的 AI 医学影像辅助分析智能体：MONAI 影像检测 + RAG 知识增强 + LangChain Agent 编排 + DeepSeek 推理
 
-Martin 是一个开源的医学影像 AI Agent，以肺结节检测为切入点，实现从**影像感知 → 知识检索 → 智能推理 → 报告生成**的完整诊断辅助流程。
+Martin 是一个开源的医学影像 AI Copilot，面向**呼吸科 / 胸外科 / 影像科医生**，以肺结节检测为切入点，实现从**影像感知 → 知识检索 → 智能推理 → 报告生成**的完整辅助分析流程。
+
+**核心定位：** 不是面向患者的医疗聊天机器人，而是医生工作流的 AI 影像辅助分析智能体。
 
 ---
 
@@ -14,7 +16,10 @@ Martin 是一个开源的医学影像 AI Agent，以肺结节检测为切入点�
 - 🧠 **结构化病例记忆** — CaseContext 两层记忆架构，Token 高效利用
 - 📄 **多类型报告生成** — brief / detailed / research 三档，LCEL 声明式编排
 - 💾 **会话持久化** — SqliteSaver + 历史管理，`/list`、`/open`、`/switch`，重启不丢失
-- 🌐 **Web 工作区** — Vue 3 + FastAPI，支持 Agent 对话、CT 检测、报告与历史会话
+- 🌐 **Web Copilot 工作台** — Vue 3 + FastAPI 三栏临床工作区（影像输入 / Agent 对话 / 病例上下文）
+- 📎 **ChatGPT 式附件上传** — 聊天栏直接上传 CT，自动识别医学影像并触发分析
+- ⚡ **WebSocket 实时过程** — AgentTimeline 展示工具调用、观察结果、推理状态
+- 🗄 **MinIO 对象存储** — 医学影像文件统一存储，CaseContext 关联 file_id
 - 📝 **医疗审计溯源** — reasoning 字段 + JSONL 审计日志，全程可追溯
 - 🖥 **GPU 加速推理** — CUDA 加速，支持本地模型部署
 
@@ -93,12 +98,14 @@ AgentExecutor.invoke()
 | Agent 框架 | LangChain 1.x + LangGraph |
 | Web 前端 | Vue 3 + Vite + Pinia + Element Plus |
 | Web 后端 | FastAPI + REST + WebSocket |
+| 实时通信 | WebSocket（Agent 工具调用过程推送） |
+| 对象存储 | MinIO（医学影像文件存储） |
 | LLM | DeepSeek API（兼容 OpenAI 协议） |
 | RAG 向量库 | ChromaDB（本地持久化） |
 | Embedding | BGE-Small-ZH-v1.5（本地部署） |
 | 视觉模型 | MONAI RetinaNet 3D |
 | 深度学习 | PyTorch + CUDA |
-| 图像格式 | NIfTI / MetaImage |
+| 图像格式 | NIfTI / MetaImage / DICOM |
 | 审计日志 | JSONL |
 
 ---
@@ -177,7 +184,9 @@ python -m martin detect -i data/ct.nii.gz -o results/detection.json
 python -m martin case -i results/detection.json -o report.md --type detailed
 ```
 
-### 方式 3：Web 对话工作区
+### 方式 3：Web Copilot 工作台（推荐）
+
+Martin Web 端已升级为**面向医生的 AI 医学影像辅助分析工作台**，采用三栏临床布局。
 
 首次运行或前端代码更新后，先构建 Vue 页面：
 
@@ -195,17 +204,46 @@ conda activate monai_learning
 python -m martin web
 ```
 
-浏览器访问 `http://127.0.0.1:8000`。Web 端可以直接与 Agent 多轮对话，也可以查看并继续 `data/sessions.sqlite` 中的历史会话。
+浏览器访问 `http://127.0.0.1:8000`。
 
-前端开发模式使用两个终端：后端运行 `python -m martin web --reload`，前端在 `frontend/` 目录运行 `npm run dev`，访问 `http://127.0.0.1:5173`。
+**开发模式**（前后端分离热重载）：
+
+```bash
+# 终端1：后端（monai_learning 环境）
+conda activate monai_learning
+python -m martin web --reload
+# 或：python -m uvicorn api.main:app --host 127.0.0.1 --port 8000 --reload
+
+# 终端2：前端
+cd frontend
+npm run dev
+```
+
+访问 `http://localhost:5173`。
+
+**核心交互流程：**
+
+1. **上传 CT 影像** — 在聊天输入框点击 📎 按钮上传 `.nii` / `.nii.gz` / `.dcm` 文件，系统自动上传到 MinIO 并触发影像分析，无需额外输入文字
+2. **Agent 实时过程** — AgentTimeline 组件通过 WebSocket 展示 `analyze_image` → `retrieve_knowledge` → `update_case_context` 等工具调用过程
+3. **病例上下文同步** — 右侧 CaseContextPanel 实时展示患者信息、影像结果、结节数据、风险因素
+4. **多轮追问** — 分析完成后可继续追问"这个结节危险吗？""结合患者年龄重新评估""生成报告"等
+5. **报告生成** — 输入"生成报告"，Agent 读取完整 CaseContext 融合影像结果、患者信息、RAG 知识生成辅助报告
 
 ### 运行效果
 
-基于模拟问诊资料和项目实际检测输出生成的完整病例报告：
+**Web Copilot 首页 Dashboard：**
+
+![Martin Web Copilot Dashboard](docs/web_copilot_dashboard.svg)
+
+**三栏病例工作区（影像输入 / Agent 对话 / 病例上下文）：**
+
+![Martin Web Copilot Workspace](docs/web_copilot_workspace.svg)
+
+**基于 CaseContext 生成的辅助分析报告：**
 
 ![肺部 CT 智能辅助病例报告](docs/case_report_demo.png)
 
-历史会话查看效果：
+**CLI 历史会话查看：**
 
 ![多轮对话与知识库检索](docs/session_history_demo.svg)
 
@@ -253,7 +291,7 @@ Agent 会将会话保存到 `data/sessions.sqlite`（LangGraph 官方 `SqliteSav
 | 🔲 | 多模态融合 | 融合 DICOM 元数据、病理报告等 |
 | 🔲 | 多 Agent 协作 | 检测 Agent + 诊断 Agent + 报告 Agent |
 | 🔲 | 分割能力 | 增加结节分割与体积测量 |
-| ✅ | Web UI | Vue 3 + FastAPI 对话与病例工作区 |
+| ✅ | Web UI | Vue 3 + FastAPI 三栏临床工作台 + WebSocket 实时过程 |
 | 🔲 | 批量处理 | 支持队列批量分析 |
 
 ---
