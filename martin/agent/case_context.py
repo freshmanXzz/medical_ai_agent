@@ -180,8 +180,8 @@ class CaseContext:
             恢复后的 ``CaseContext`` 实例。
         """
         instance = cls()
-        instance.patient_info = dict(data.get("patient_info", instance.patient_info))
-        instance.image_info = dict(data.get("image_info", instance.image_info))
+        instance.patient_info.update(data.get("patient_info", {}))
+        instance.image_info.update(data.get("image_info", {}))
         instance.nodules = list(data.get("nodules", []))
         instance.knowledge_summary = data.get("knowledge_summary", "")
         instance.clinical_notes = list(data.get("clinical_notes", []))

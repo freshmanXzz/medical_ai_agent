@@ -29,8 +29,9 @@ class TestAnalyzeImageTool:
         result = _unwrap(analyze_image)(image_path="/nonexistent/path.nii.gz")
         assert "错误: 图像文件不存在" in result
 
+    @patch("martin.agent.tools.is_oss_path", return_value=False)
     @patch("martin.agent.tools.NoduleDetector")
-    def test_analyze_image_with_reasoning(self, mock_detector):
+    def test_analyze_image_with_reasoning(self, mock_detector, mock_oss):
         """测试 reasoning 参数兼容性。"""
         # mock 检测返回
         mock_instance = mock_detector.return_value
@@ -55,8 +56,9 @@ class TestAnalyzeImageTool:
         )
         assert "test.nii.gz" in result2  # 结果不受 reasoning 影响
 
+    @patch("martin.agent.tools.is_oss_path", return_value=False)
     @patch("martin.agent.tools.NoduleDetector")
-    def test_analyze_image_with_nodules(self, mock_detector):
+    def test_analyze_image_with_nodules(self, mock_detector, mock_oss):
         """测试检测到结节时的格式化输出。"""
         mock_instance = mock_detector.return_value
         mock_instance.detect.return_value = {

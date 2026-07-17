@@ -10,10 +10,10 @@ python -m martin [命令] [参数]
 - analyze: 分析检测结果
 - report: 生成医学报告
 - convert: 转换图像格式
+- web: 启动 Web API 与已构建前端
 """
 import argparse
 import sys
-import os
 
 _interactive_console = bool(getattr(sys.stdout, "isatty", lambda: False)())
 
@@ -94,7 +94,13 @@ def main():
                               choices=["brief", "detailed", "research"],
                               help="报告类型")
     agent_parser.add_argument("--language", default="zh", choices=["zh", "en"],
-                              help="报告语言")
+                               help="报告语言")
+
+    # web 命令（FastAPI + 已构建的 Vue 前端）
+    web_parser = subparsers.add_parser("web", help="启动 Web 服务")
+    web_parser.add_argument("--host", default="127.0.0.1", help="监听地址")
+    web_parser.add_argument("--port", type=int, default=8000, help="监听端口")
+    web_parser.add_argument("--reload", action="store_true", help="启用后端热重载")
     
     args = parser.parse_args()
     
@@ -117,12 +123,27 @@ def main():
         run_info(args)
     elif args.command == "agent":
         handle_agent_v2(args)
+    elif args.command == "web":
+        run_web(args)
+
+
+def run_web(args):
+    """启动 FastAPI；若 frontend/dist 存在则同时提供 Vue 页面。"""
+    try:
+        import uvicorn
+    except ImportError as exc:
+        raise RuntimeError("缺少 Web 依赖，请先执行 pip install -r requirements.txt") from exc
+
+    uvicorn.run(
+        "api.main:app",
+        host=args.host,
+        port=args.port,
+        reload=args.reload,
+    )
 
 def run_detect(args):
     """执行结节检测"""
     from martin.vision.nodule_detector import NoduleDetector
-    import json
-    import os
     
     print(f"正在检测: {args.input}")
     

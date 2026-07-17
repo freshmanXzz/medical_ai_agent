@@ -4,13 +4,15 @@ from __future__ import annotations
 
 import os
 from dataclasses import dataclass
-from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, Iterable, List, Optional
 
 from langchain_core.messages import AIMessage, HumanMessage
 from langgraph.checkpoint.base import BaseCheckpointSaver
 from langgraph.checkpoint.memory import MemorySaver
+
+
+CONTEXT_MESSAGE_PREFIX = "【当前病例上下文 JSON】\n"
 
 
 @dataclass(frozen=True)
@@ -96,16 +98,26 @@ class SessionManager:
                 latest[thread_id] = item
         return latest
 
+    def _checkpoints_by_thread(self) -> Dict[str, List[Any]]:
+        grouped: Dict[str, List[Any]] = {}
+        for item in self.checkpointer.list(None):
+            config = getattr(item, "config", {}) or {}
+            thread_id = config.get("configurable", {}).get("thread_id")
+            if thread_id:
+                grouped.setdefault(thread_id, []).append(item)
+        return grouped
+
     def list_sessions(self) -> List[SessionSummary]:
         summaries = []
-        for thread_id, item in self._latest_checkpoints().items():
-            timestamp = _checkpoint_time(item)
+        for thread_id, items in self._checkpoints_by_thread().items():
+            item = max(items, key=_checkpoint_time)
+            timestamps = [timestamp for timestamp in map(_checkpoint_time, items) if timestamp]
             summaries.append(
                 SessionSummary(
                     thread_id=thread_id,
                     title=_title_from_messages(_checkpoint_messages(item)),
-                    created_at=timestamp,
-                    updated_at=timestamp,
+                    created_at=min(timestamps) if timestamps else "",
+                    updated_at=max(timestamps) if timestamps else "",
                 )
             )
         return sorted(summaries, key=lambda item: item.updated_at, reverse=True)
@@ -115,6 +127,28 @@ class SessionManager:
         if item is None:
             return []
         return _display_messages(_checkpoint_messages(item))
+
+    def get_case_context(self, thread_id: str) -> Dict[str, Any]:
+        """从最近 checkpoint 中恢复 Agent 注入的结构化病例上下文。"""
+        item = self._latest_checkpoints().get(thread_id)
+        if item is None:
+            return {}
+
+        for message in reversed(_checkpoint_messages(item)):
+            if not isinstance(message, HumanMessage):
+                continue
+            content = _message_content(message)
+            if not content.startswith(CONTEXT_MESSAGE_PREFIX):
+                continue
+            payload = content[len(CONTEXT_MESSAGE_PREFIX):].split("\n\n", 1)[0]
+            try:
+                import json
+
+                data = json.loads(payload)
+            except (TypeError, ValueError):
+                continue
+            return data if isinstance(data, dict) else {}
+        return {}
 
 
 class CheckpointerManager:
@@ -156,4 +190,3 @@ def close_default_checkpointer() -> None:
     if _default_manager is not None:
         _default_manager.close()
         _default_manager = None
-

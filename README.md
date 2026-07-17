@@ -14,6 +14,7 @@ Martin 是一个开源的医学影像 AI Agent，以肺结节检测为切入点�
 - 🧠 **结构化病例记忆** — CaseContext 两层记忆架构，Token 高效利用
 - 📄 **多类型报告生成** — brief / detailed / research 三档，LCEL 声明式编排
 - 💾 **会话持久化** — SqliteSaver + 历史管理，`/list`、`/open`、`/switch`，重启不丢失
+- 🌐 **Web 工作区** — Vue 3 + FastAPI，支持 Agent 对话、CT 检测、报告与历史会话
 - 📝 **医疗审计溯源** — reasoning 字段 + JSONL 审计日志，全程可追溯
 - 🖥 **GPU 加速推理** — CUDA 加速，支持本地模型部署
 
@@ -90,6 +91,8 @@ AgentExecutor.invoke()
 | Component | Technology |
 |-----------|------------|
 | Agent 框架 | LangChain 1.x + LangGraph |
+| Web 前端 | Vue 3 + Vite + Pinia + Element Plus |
+| Web 后端 | FastAPI + REST + WebSocket |
 | LLM | DeepSeek API（兼容 OpenAI 协议） |
 | RAG 向量库 | ChromaDB（本地持久化） |
 | Embedding | BGE-Small-ZH-v1.5（本地部署） |
@@ -107,6 +110,7 @@ AgentExecutor.invoke()
 - Python ≥ 3.10
 - PyTorch ≥ 2.0 + CUDA（推荐）
 - ≥ 8GB GPU 显存
+- Node.js ≥ 18（构建 Web 前端时需要）
 
 ### 安装步骤
 
@@ -173,6 +177,28 @@ python -m martin detect -i data/ct.nii.gz -o results/detection.json
 python -m martin case -i results/detection.json -o report.md --type detailed
 ```
 
+### 方式 3：Web 对话工作区
+
+首次运行或前端代码更新后，先构建 Vue 页面：
+
+```bash
+cd frontend
+npm install
+npm run build
+cd ..
+```
+
+然后使用 `monai_learning` 环境启动 Martin Web 服务：
+
+```bash
+conda activate monai_learning
+python -m martin web
+```
+
+浏览器访问 `http://127.0.0.1:8000`。Web 端可以直接与 Agent 多轮对话，也可以查看并继续 `data/sessions.sqlite` 中的历史会话。
+
+前端开发模式使用两个终端：后端运行 `python -m martin web --reload`，前端在 `frontend/` 目录运行 `npm run dev`，访问 `http://127.0.0.1:5173`。
+
 ### 运行效果
 
 基于模拟问诊资料和项目实际检测输出生成的完整病例报告：
@@ -227,7 +253,7 @@ Agent 会将会话保存到 `data/sessions.sqlite`（LangGraph 官方 `SqliteSav
 | 🔲 | 多模态融合 | 融合 DICOM 元数据、病理报告等 |
 | 🔲 | 多 Agent 协作 | 检测 Agent + 诊断 Agent + 报告 Agent |
 | 🔲 | 分割能力 | 增加结节分割与体积测量 |
-| 🔲 | Web UI | 前端可视化交互界面 |
+| ✅ | Web UI | Vue 3 + FastAPI 对话与病例工作区 |
 | 🔲 | 批量处理 | 支持队列批量分析 |
 
 ---

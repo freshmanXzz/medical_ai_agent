@@ -1,5 +1,6 @@
 """测试会话持久化相关功能：SqliteSaver 持久化、SessionManager 列表与消息查询、多会话独立性。"""
 
+import json
 import os
 import tempfile
 import uuid
@@ -7,7 +8,7 @@ import uuid
 import pytest
 from langchain_core.messages import AIMessage, HumanMessage
 
-from martin.agent.sessions import SessionManager
+from martin.agent.sessions import CONTEXT_MESSAGE_PREFIX, SessionManager
 
 try:
     from langgraph.checkpoint.sqlite import SqliteSaver
@@ -174,8 +175,29 @@ class TestSessionManagerListSessions:
 
         assert len(summaries) == 1
         assert summaries[0].thread_id == "same-session"
+        assert summaries[0].created_at == "2026-07-14T08:00:00Z"
         # 应使用最新 checkpoint 的时间戳
         assert summaries[0].updated_at == "2026-07-14T09:00:00Z"
+
+    def test_restores_case_context_from_checkpoint(self, temp_db):
+        """结构化病例上下文应随 checkpoint 恢复。"""
+        context = {
+            "patient_info": {"age": 62, "gender": "男"},
+            "image_info": {"image_name": "case.nii.gz"},
+            "nodules": [{"index": 1, "diameter": 8.2}],
+        }
+        content = f"{CONTEXT_MESSAGE_PREFIX}{json.dumps(context, ensure_ascii=False)}\n\n病例摘要"
+
+        with SqliteSaver.from_conn_string(temp_db) as saver:
+            saver.put(
+                _make_config("context-session"),
+                _make_checkpoint([HumanMessage(content=content)]),
+                _META,
+                _VERSIONS,
+            )
+            restored = SessionManager(saver).get_case_context("context-session")
+
+        assert restored == context
 
     def test_title_from_first_user_message(self, temp_db):
         """会话标题应取自第一条 User 消息。"""

@@ -7,6 +7,8 @@
 import contextvars
 import json
 import logging
+import os
+import threading
 from typing import Dict
 
 from langchain_core.tools import tool
@@ -19,8 +21,25 @@ from martin.llm.chain import (
 )
 from martin.rag.retriever import format_results, search_by_detection, search_by_query
 from martin.rag.vector_store import get_vector_store
+from martin.utils.oss_client import is_oss_path, parse_oss_path, get_oss_client
 
 logger = logging.getLogger(__name__)
+
+_detector_cache_lock = threading.Lock()
+_detector_inference_lock = threading.Lock()
+_detector_cache_class = None
+_detector_cache_instance = None
+
+
+def _get_nodule_detector():
+    """复用已加载的检测模型；测试替换检测器类时自动刷新缓存。"""
+    global _detector_cache_class, _detector_cache_instance
+    detector_class = NoduleDetector
+    with _detector_cache_lock:
+        if _detector_cache_instance is None or _detector_cache_class is not detector_class:
+            _detector_cache_instance = detector_class()
+            _detector_cache_class = detector_class
+        return _detector_cache_instance
 
 # 会话级病例上下文，使用 ContextVar 保证同一线程/协程内状态隔离。
 # 默认实例作为未设置会话上下文时的兜底回退。
@@ -155,8 +174,11 @@ def _normalize_detection_result(result: Dict) -> None:
 def analyze_image(image_path: str, reasoning: str = "") -> str:
     """对肺部CT图像进行结节检测分析，返回检测到的结节信息列表。
 
+    支持本地文件路径和 OSS 对象名两种输入方式。当输入为 OSS 路径时，
+    自动从 OSS 下载到临时目录后执行检测，分析完成后清理临时文件。
+
     Args:
-        image_path: CT图像文件路径（支持NIfTI格式）。
+        image_path: CT图像文件路径或 OSS 对象名（支持 oss://bucket/object 格式）。
         reasoning: 推理过程记录（不参与业务逻辑）。
 
     Returns:
@@ -164,15 +186,38 @@ def analyze_image(image_path: str, reasoning: str = "") -> str:
     """
     logger.info("调用 analyze_image 工具，图像路径: %s", image_path)
 
+    # OSS 路径处理：先下载到临时目录
+    temp_file_path = None
+    actual_path = image_path
+    if is_oss_path(image_path):
+        logger.info("检测到 OSS 路径，开始下载: %s", image_path)
+        try:
+            _, object_name = parse_oss_path(image_path)
+            client = get_oss_client()
+            temp_file_path = client.download_file(object_name)
+            actual_path = temp_file_path
+        except Exception as e:
+            logger.error("从 OSS 下载文件失败: %s", e, exc_info=True)
+            return f"错误: 从 OSS 下载文件失败: {e}"
+
     try:
-        detector = NoduleDetector()
-        result = detector.detect(image_path)
+        detector = _get_nodule_detector()
+        with _detector_inference_lock:
+            result = detector.detect(actual_path)
     except FileNotFoundError:
-        logger.error("图像文件不存在: %s", image_path)
+        logger.error("图像文件不存在: %s", actual_path)
         return f"错误: 图像文件不存在: {image_path}"
     except Exception as e:
         logger.error("图像检测失败: %s", e, exc_info=True)
         return f"错误: 图像分析失败: {e}"
+    finally:
+        # 清理 OSS 下载的临时文件
+        if temp_file_path and os.path.exists(temp_file_path):
+            try:
+                os.remove(temp_file_path)
+                logger.info("已清理临时下载文件: %s", temp_file_path)
+            except OSError as e:
+                logger.warning("清理临时文件失败: %s", e)
 
     # 将检测结果同步到当前会话的病例上下文
     try:
@@ -386,3 +431,66 @@ def generate_report(
             f"报告生成失败：{e}\n\n"
             f"请稍后重试，或联系系统管理员。"
         )
+
+
+@tool
+def upload_to_oss(local_path: str, object_name: str = "", reasoning: str = "") -> str:
+    """将本地文件上传到 OSS 对象存储。
+
+    用于将检测结果、报告等文件持久化到远程存储，便于跨会话或跨服务访问。
+
+    Args:
+        local_path: 本地文件路径。
+        object_name: OSS 对象名，为空时自动生成。
+        reasoning: 推理过程记录（不参与业务逻辑）。
+
+    Returns:
+        上传结果信息，包含对象名和 bucket 名称。
+    """
+    logger.info("调用 upload_to_oss 工具，本地路径: %s", local_path)
+
+    if not os.path.isfile(local_path):
+        return f"错误: 本地文件不存在: {local_path}"
+
+    try:
+        client = get_oss_client()
+        result_name = client.upload_file(local_path, object_name)
+        file_size = os.path.getsize(local_path)
+        return (
+            f"文件已上传到 OSS\n"
+            f"  - bucket: {client.bucket}\n"
+            f"  - object_name: {result_name}\n"
+            f"  - size: {file_size} bytes"
+        )
+    except Exception as e:
+        logger.error("上传到 OSS 失败: %s", e, exc_info=True)
+        return f"错误: 上传到 OSS 失败: {e}"
+
+
+@tool
+def download_from_oss(object_name: str, reasoning: str = "") -> str:
+    """从 OSS 对象存储下载文件到本地临时目录。
+
+    用于获取先前上传的影像、报告等文件，供后续分析使用。
+
+    Args:
+        object_name: OSS 对象名（如 ct/xxx.nii.gz）。
+        reasoning: 推理过程记录（不参与业务逻辑）。
+
+    Returns:
+        下载结果信息，包含本地文件路径。
+    """
+    logger.info("调用 download_from_oss 工具，对象名: %s", object_name)
+
+    try:
+        client = get_oss_client()
+        local_path = client.download_file(object_name)
+        return (
+            f"文件已从 OSS 下载\n"
+            f"  - bucket: {client.bucket}\n"
+            f"  - object_name: {object_name}\n"
+            f"  - local_path: {local_path}"
+        )
+    except Exception as e:
+        logger.error("从 OSS 下载失败: %s", e, exc_info=True)
+        return f"错误: 从 OSS 下载失败: {e}"

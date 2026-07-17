@@ -141,7 +141,7 @@ class NoduleDetector:
                 overlap=0.25,
                 sw_batch_size=1,
                 mode='constant',
-                device='cpu'
+                device=self.device
             )
             self.detector.eval()
 
@@ -213,12 +213,14 @@ class NoduleDetector:
         )
         return dataloader
 
-    def detect(self, image_path: str) -> Dict:
+    def detect(self, image_path: str, max_slices: Optional[int] = None) -> Dict:
         """
         检测单张图像中的肺部结节
 
         Args:
             image_path: 图像文件路径（支持NIfTI格式）
+            max_slices: 限制Z轴最大切片数，用于快速测试。
+                        None表示处理完整体积，建议测试时设为96。
 
         Returns:
             包含检测结果的字典
@@ -239,11 +241,22 @@ class NoduleDetector:
             logger.info(f"  数据准备完成: {time.time() - t0:.2f}秒")
 
             logger.info("步骤 2/3: 执行推理...")
+            if max_slices:
+                logger.info(f"  快速模式: 仅处理前 {max_slices} 层切片")
+                self.detector.set_sliding_window_inferer(
+                    roi_size=[256, 256, 64],
+                    overlap=0.25,
+                    sw_batch_size=4,
+                    mode='constant',
+                    device=self.device,
+                )
             t0 = time.time()
             results = []
             with torch.no_grad():
                 for batch_data in dataloader:
                     inputs = [data["image"].to(self.device) for data in batch_data]
+                    if max_slices is not None:
+                        inputs = [inp[..., :max_slices] for inp in inputs]
                     outputs = self.detector(inputs, use_inferer=True)
                     for i, data in enumerate(batch_data):
                         result = {**outputs[i], "image": data["image"]}

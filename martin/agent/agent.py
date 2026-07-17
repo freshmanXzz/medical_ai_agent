@@ -8,6 +8,7 @@
 - 思维日志 → log/agent_thinking/YYYY-MM-DD.log（Agent 推理过程、工具调用参数、完整 reasoning）
 - 审计日志 → audit/{session_id}.jsonl（结构化 reasoning 审计溯源）
 """
+import json
 import logging
 import os
 from datetime import datetime
@@ -16,21 +17,27 @@ from typing import Any, Dict, List, Optional, Tuple
 from langchain.agents import create_agent as create_langchain_agent
 from langchain_core.agents import AgentAction
 from langchain_core.callbacks import BaseCallbackHandler
-from langchain_core.messages import AIMessage, SystemMessage, ToolMessage
+from langchain_core.messages import AIMessage, ToolMessage
 from langchain_core.tools import BaseTool
 from langgraph.checkpoint.base import BaseCheckpointSaver
 
 from martin.agent import (
     analyze_image,
+    download_from_oss,
     generate_report,
     retrieve_knowledge,
     update_case_context,
+    upload_to_oss,
 )
 from martin.agent.prompt import SYSTEM_PROMPT
 from martin.agent.case_context import CaseContext
 from martin.agent.tools import reset_case_context, set_case_context
 from martin.llm.chat_model import get_chat_model
-from martin.agent.sessions import get_default_checkpointer
+from martin.agent.sessions import (
+    CONTEXT_MESSAGE_PREFIX,
+    SessionManager,
+    get_default_checkpointer,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -187,15 +194,18 @@ class AgentExecutor:
         self.thread_id = thread_id or "default"
         self._thinking_logger = _get_thinking_logger()
 
-        # 在同一线程 ID 的多个实例间共享病例上下文
+        # 会话记忆：同一 thread_id 的多次 invoke 自动保持历史
+        memory = checkpointer or get_default_checkpointer()
+
+        # 优先使用进程缓存；重启后从 checkpoint 的结构化消息恢复。
         if self.thread_id not in AgentExecutor._context_cache:
-            AgentExecutor._context_cache[self.thread_id] = CaseContext()
+            saved_context = SessionManager(memory).get_case_context(self.thread_id)
+            AgentExecutor._context_cache[self.thread_id] = (
+                CaseContext.from_dict(saved_context) if saved_context else CaseContext()
+            )
         self.case_context = AgentExecutor._context_cache[self.thread_id]
 
         llm = get_chat_model()
-
-        # 会话记忆：同一 thread_id 的多次 invoke 自动保持历史
-        memory = checkpointer or get_default_checkpointer()
 
         self._agent = create_langchain_agent(
             model=llm,
@@ -225,10 +235,13 @@ class AgentExecutor:
         # 构造消息：若存在病例上下文则先注入上下文摘要
         context_str = self.case_context.to_context_string(max_nodules=5)
         if context_str:
+            context_json = json.dumps(self.case_context.to_dict(), ensure_ascii=False)
             messages = [
                 (
                     "human",
-                    f"【当前病例上下文】\n{context_str}\n\n请基于以上病例信息理解后续问题。",
+                    f"{CONTEXT_MESSAGE_PREFIX}{context_json}\n\n"
+                    f"【当前病例上下文】\n{context_str}\n\n"
+                    "请基于以上病例信息理解后续问题。",
                 ),
                 ("human", user_input),
             ]
@@ -349,6 +362,8 @@ def create_agent(
             retrieve_knowledge,
             generate_report,
             update_case_context,
+            upload_to_oss,
+            download_from_oss,
         ]
     return AgentExecutor(
         tools=tools,
