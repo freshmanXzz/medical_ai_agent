@@ -1,0 +1,1115 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Agent 智能体学习笔记 — 基于 Martin 项目</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { font-family: "Segoe UI", system-ui, -apple-system, sans-serif; background: #0f1117; color: #d1d5db; line-height: 1.85; }
+  .wrap { max-width: 860px; margin: 0 auto; padding: 48px 28px; }
+
+  h1 { font-size: 2em; margin-bottom: 6px; color: #f9fafb; font-weight: 700; }
+  .sub { color: #6b7280; margin-bottom: 44px; font-size: 1.02em; }
+
+  h2 { font-size: 1.45em; margin: 56px 0 18px; padding-bottom: 10px; border-bottom: 2px solid #1e3a5f; color: #38bdf8; font-weight: 600; }
+  h3 { font-size: 1.15em; margin: 32px 0 12px; color: #7dd3fc; font-weight: 600; }
+  h4 { font-size: 1em; margin: 20px 0 8px; color: #a5f3fc; font-weight: 600; }
+
+  code { font-family: "JetBrains Mono", "Cascadia Code", Consolas, monospace; font-size: 0.87em; }
+  pre { background: #09090b; border: 1px solid #27272a; padding: 16px 20px; border-radius: 8px; overflow-x: auto; margin: 10px 0; font-size: 0.85em; line-height: 1.65; }
+  .inline { background: #1e293b; padding: 2px 7px; border-radius: 4px; font-size: 0.88em; white-space: nowrap; }
+
+  table { width: 100%; border-collapse: collapse; margin: 14px 0; font-size: 0.9em; }
+  th { background: #1f2937; text-align: left; padding: 10px 14px; border-bottom: 2px solid #374151; color: #9ca3af; font-weight: 600; }
+  td { padding: 10px 14px; border-bottom: 1px solid #1f2937; vertical-align: top; }
+  tr:hover td { background: #1f293740; }
+
+  .box { border-radius: 10px; padding: 14px 18px; margin: 14px 0; font-size: 0.9em; border-left: 4px solid; }
+  .box.blue { background: #0c1929; border-color: #38bdf8; }
+  .box.amber { background: #422006; border-color: #f59e0b; }
+  .box.green { background: #052e16; border-color: #4ade80; }
+  .box.red { background: #450a0a; border-color: #ef4444; }
+  .box.purple { background: #1e1b4b; border-color: #8b5cf6; }
+  .box strong { display: block; margin-bottom: 4px; }
+
+  .toc { background: #111827; border: 1px solid #1f2937; border-radius: 12px; padding: 22px 26px; margin-bottom: 36px; }
+  .toc h3 { margin: 0 0 14px; color: #e5e7eb; font-size: 1em; }
+  .toc a { color: #60a5fa; text-decoration: none; display: block; padding: 3px 0; font-size: 0.93em; }
+  .toc a:hover { color: #93c5fd; text-decoration: underline; }
+
+  .vocab { display: inline-block; background: #1e293b; color: #93c5fd; padding: 2px 8px; border-radius: 4px; font-size: 0.82em; margin-right: 4px; }
+  .tag-good { background: #065f46; color: #86efac; padding: 1px 7px; border-radius: 4px; font-size: 0.78em; }
+  .tag-bad { background: #7f1d1d; color: #fecaca; padding: 1px 7px; border-radius: 4px; font-size: 0.78em; }
+
+  .arch-row { display: flex; gap: 6px; align-items: stretch; margin: 10px 0; flex-wrap: wrap; }
+  .arch-cell { border-radius: 8px; padding: 10px 14px; text-align: center; border: 1px solid; font-size: 0.84em; min-width: 120px; flex: 1; }
+  .arch-cell strong { display: block; font-size: 0.92em; margin-bottom: 3px; }
+  .arch-cell.blue { background: #1e1b4b; border-color: #4c1d95; }
+  .arch-cell.green { background: #052e16; border-color: #166534; }
+  .arch-arrow { display: flex; align-items: center; justify-content: center; color: #4b5563; font-size: 1.2em; flex-shrink: 0; }
+
+  hr { border: none; border-top: 1px solid #1f2937; margin: 30px 0; }
+
+  p { margin-bottom: 8px; }
+  ul, ol { margin: 6px 0 6px 22px; }
+  li { margin-bottom: 5px; }
+
+  .footnote { color: #6b7280; font-size: 0.85em; margin-top: 6px; }
+
+  @media (max-width: 640px) {
+    .wrap { padding: 28px 16px; }
+    h1 { font-size: 1.5em; }
+    .arch-row { flex-direction: column; }
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<h1>Agent 智能体学习笔记</h1>
+<p class="sub">基于 Martin 医学 AI 项目的五篇核心笔记，从概念到代码</p>
+
+<div class="toc">
+  <h3>笔记目录</h3>
+  <a href="#n1">笔记一：ReAct 循环 — Agent 如何"思考再行动"</a>
+  <a href="#n2">笔记二：双记忆系统 — 为什么 Agent 需要两套"记忆"</a>
+  <a href="#n3">笔记三：工具设计 — 什么时候写新工具，什么时候让 Agent 自己组合</a>
+  <span style="font-size:0.82em;color:#6b7280;margin-left:14px;">3.0 软 Workflow 现状 / 3.7 Anthropic 对照解读</span>
+  <a href="#n4">笔记四：Prompt 的边界 — 软约束与硬约束</a>
+  <a href="#n5">笔记五：分层架构 — 为什么核心引擎不能和 HTTP 层混在一起</a>
+</div>
+
+<!-- ═══════════════ 笔记一 ═══════════════ -->
+<h2 id="n1">笔记一：ReAct 循环 — Agent 如何"思考再行动"</h2>
+
+<h3>1.1 什么是 ReAct</h3>
+
+<p>ReAct = <strong>Re</strong>asoning + <strong>Act</strong>ing。Agent 不是"看到问题直接回答"，而是经历一个循环：</p>
+
+<pre>Thought（思考）→ Action（行动/调用工具）→ Observation（观察工具结果）→ Thought（再思考）→ ... → Final Answer（最终回答）</pre>
+
+<p>Martin 项目把这个循环交给 LangGraph 的 <code class="inline">create_agent</code> 自动编排，开发者只需定义工具，LangGraph 负责循环控制。</p>
+
+<h3>1.2 为什么需要 Thought 环节</h3>
+
+<div class="box green">
+  <strong>核心认知</strong>
+  Observation → Thought 这一步是 Agent 决策质量的瓶颈。没有它，Agent 就是闭着眼睛做多步决策。
+</div>
+
+<p><strong>实例：</strong>Agent 调了 <code class="inline">analyze_image</code>，返回"检测到 3 个结节，最大 5.2mm"。</p>
+
+<table>
+  <tr><th>没有 Thought</th><th>有 Thought</th></tr>
+  <tr>
+    <td>LLM 随机选下一个工具，可能又问一遍"请上传 CT"</td>
+    <td>LLM 推理："5.2mm 属于小结节，需要查 Fleischner 指南判断风险等级 → 下一步调 <code class="inline">search_medical_knowledge</code>"</td>
+  </tr>
+</table>
+
+<p>Thought 的本质是：<strong>让 LLM 基于"刚才看到了什么"来决定"接下来做什么"</strong>。这是多步推理的根基。</p>
+
+<h3>1.3 Martin 项目中的体现</h3>
+
+<p>在 <code class="inline">prompt.py</code> 中，每个工具的参数 schema 都强制包含一个 <code class="inline">reasoning</code> 字段：</p>
+
+<pre>analyze_image 工具的参数:
+  image_path: string, 必填
+  reasoning: string, 必填  ← 强制要求：调用这个工具前，先说明为什么</pre>
+
+<p>这不是为了审计日志，而是为了确保 LLM 在调用工具前真正"想了一下"。</p>
+
+<h3>1.4 常见误解：每次循环只能用一个工具？</h3>
+
+<div class="box red">
+  <strong>误解：每次循环只能用一个工具</strong>
+  Function Calling 支持并行调用。LLM 可以在同一轮返回多个 <code class="inline">tool_calls</code>，LangGraph 收到后并行执行。
+</div>
+
+<h4>实锤：Martin 审计日志中的并行调用</h4>
+
+<p>来自 <code class="inline">audit/677326aa_20260714_192051.jsonl</code> 的真实运行记录：</p>
+
+<p><strong>第 1 轮（串行）</strong>——只能先检测，因为不知道 CT 里有什么：</p>
+
+<pre>19:36:50.161  analyze_image  ← 只返回了 1 个 tool_call
+  reasoning: "用户提供了CT路径…优先调用analyze_image进行结节检测"</pre>
+
+<p><strong>第 2 轮（并行！）</strong>——检测结果已拿到，两个后续操作互不依赖：</p>
+
+<pre>19:39:42.894478  update_case_context    ← 同一微秒！
+  reasoning: "用户提供了患者信息…需要更新到病例上下文"
+19:39:42.894478  retrieve_knowledge     ← 同一微秒！
+  reasoning: "需要根据检测结果检索知识库…获取Lung-RADS随访建议"</pre>
+
+<p><strong>第 3 轮（五个工具并行！）</strong>——全部基于前两轮的结果，互相独立：</p>
+
+<pre>19:41:33.317545  analyze_image          ← 重新检测
+19:41:33.317545  update_case_context    ← 更新患者信息
+19:41:33.317545  retrieve_knowledge     ← 检索指南
+19:41:33.317545  update_case_context    ← 补充吸烟史细节
+19:41:33.317545  generate_report        ← 生成详细报告
+  ↑ 五个工具全部在同一微秒，LLM 一次性返回了 5 个 tool_calls</pre>
+
+<div class="box green">
+  <strong>关键规律：LLM 自己判断依赖关系</strong>
+  <ul>
+    <li>第 1 轮：只有 <code class="inline">analyze_image</code>——必须先知道结果才能决定下一步</li>
+    <li>第 2 轮：<code class="inline">update_case_context</code> + <code class="inline">retrieve_knowledge</code> 并行——互不依赖</li>
+    <li>第 3 轮：5 个工具全部并行——全部基于前两轮的结果，互相独立</li>
+  </ul>
+  不需要代码告诉 LLM"先 A 再 B"。LLM 看到依赖就串行，看到独立就并行。
+</div>
+
+<h3>1.5 关键结论</h3>
+
+<ul>
+  <li>ReAct 循环不是"多此一举"，而是 Agent 具备多步推理能力的基础</li>
+  <li>Thought 环节让每个工具调用都是"有目的的"，不是随机的</li>
+  <li>Function Calling 支持并行，不必担心循环开销过大</li>
+</ul>
+
+<div class="box blue">
+  <strong>延伸阅读</strong>
+  LangGraph <a href="https://langchain-ai.github.io/langgraph/concepts/agentic_concepts/" style="color:#60a5fa;">Agentic Concepts</a> — 理解 <code class="inline">create_agent</code> 内部的状态机循环。
+</div>
+
+<hr>
+
+<!-- ═══════════════ 笔记二 ═══════════════ -->
+<h2 id="n2">笔记二：双记忆系统 — 为什么 Agent 需要两套"记忆"</h2>
+
+<h3>2.1 两种记忆，两种职责</h3>
+
+<table>
+  <tr><th>记忆类型</th><th>Martin 实现</th><th>存什么</th><th>特点</th></tr>
+  <tr>
+    <td><strong>对话记忆</strong><br>(Episodic Memory)</td>
+    <td>LangGraph SqliteSaver</td>
+    <td>完整对话历史：<br>用户说了什么、Agent 回答了什么</td>
+    <td>非结构化、按时间顺序、<br>支持"刚才聊了什么"</td>
+  </tr>
+  <tr>
+    <td><strong>事实记忆</strong><br>(Working Memory)</td>
+    <td>CaseContext</td>
+    <td>结构化关键事实：<br>年龄、性别、结节列表、风险因素</td>
+    <td>结构化、精确、不丢失、<br>支持"患者基本信息是什么"</td>
+  </tr>
+</table>
+
+<p>这个设计借鉴了认知科学中"情景记忆"（记得发生过什么）和"工作记忆"（当前正在处理的关键信息）的区分。</p>
+
+<h3>2.2 如果只有一套会怎样</h3>
+
+<div class="box amber">
+  <strong>只有对话历史，没有 CaseContext</strong>
+  <p>用户第 1 轮："患者 56 岁，男性，吸烟 30 年"<br>用户第 10 轮："这个结节风险大吗？"</p>
+  <p>Agent："根据您的年龄和吸烟史...呃，您今年多大来着？"<br><em>——对话太长，上下文窗口前面被截断，年龄丢了。</em></p>
+</div>
+
+<div class="box amber">
+  <strong>只有 CaseContext，没有对话历史</strong>
+  <p>用户第 1 轮："分析这个 CT" → Agent 检测到 3 个结节<br>用户第 2 轮："第 2 个结节怎么看？"</p>
+  <p>Agent："请问您说的是哪个结节？"<br><em>——CaseContext 存了结果，但没有对话连续性，Agent 不知道"第 2 个"指的是什么。</em></p>
+</div>
+
+<h3>2.3 为什么"从对话历史里提取信息"不可靠</h3>
+
+<p>很多人会想："对话历史里不是有年龄信息吗？让 LLM 自己读不就行了？"</p>
+
+<p>问题在于：</p>
+<ol>
+  <li><strong>上下文窗口有限</strong>：对话长了，前面的信息会被截断</li>
+  <li><strong>LLM 注意力衰减</strong>：上下文越长，LLM 越容易忽略中间的关键信息</li>
+  <li><strong>提取不可靠</strong>：LLM 可能把"56 岁"记成"65 岁"</li>
+</ol>
+
+<p>所以 CaseContext 单独维护一份结构化数据，不依赖 LLM 的"记忆力"。每次对话时，把 CaseContext 作为已知信息注入，让 LLM 直接使用，而不是靠回忆。</p>
+
+<h3>2.4 Martin 项目中的实现</h3>
+
+<h4>核心设计：CaseContext 借 Checkpointer 的消息通道实现读写</h4>
+
+<div class="box green">
+  <strong>一句话精髓</strong>
+  LangGraph Checkpointer 是一套<strong>统一的存储抽象层</strong>，有三种实现。CaseContext 不关心底层是哪种——它只通过 Checkpointer 的统一接口读写，把自己的 JSON 塞进消息通道里就获得了持久化。
+</div>
+
+<h4>Checkpointer 的三种实现</h4>
+
+<table>
+  <tr><th>实现</th><th>存储在哪</th><th>进程重启后？</th><th>多实例共享？</th><th>Martin 用在哪</th></tr>
+  <tr>
+    <td><strong>MemorySaver</strong></td>
+    <td>内存 dict</td>
+    <td><span class="tag-bad">全丢</span></td>
+    <td><span class="tag-bad">不能</span></td>
+    <td>单元测试（跑完即弃）</td>
+  </tr>
+  <tr>
+    <td><strong>SQLiteSaver</strong></td>
+    <td>单机文件 <code class="inline">sessions.sqlite</code></td>
+    <td><span class="tag-good">持久</span></td>
+    <td><span class="tag-bad">不能</span>（文件锁）</td>
+    <td><strong>生产环境</strong></td>
+  </tr>
+  <tr>
+    <td><strong>PostgreSQLSaver</strong></td>
+    <td>网络数据库服务器</td>
+    <td><span class="tag-good">持久</span></td>
+    <td><span class="tag-good">可以</span>（多实例共享）</td>
+    <td>未来扩展方向</td>
+  </tr>
+</table>
+
+<p>Martin 代码中的体现（<code class="inline">sessions.py</code>）：</p>
+
+<pre>def create_memory_checkpointer():           <span class="cmt">← 测试用，跑完就丢</span>
+    return CheckpointerManager(MemorySaver())
+
+def get_default_checkpointer(db_path=None):  <span class="cmt">← 生产用，持久化</span>
+    context = SqliteSaver.from_conn_string(db_path)
+    <span class="cmt"># db_path = "data/sessions.sqlite"</span></pre>
+
+<h4>为什么换存储不影响 CaseContext 一行代码</h4>
+
+<p>CaseContext 不直接读写 SQLite。它通过 Checkpointer 的<strong>统一消息通道</strong>工作：</p>
+
+<p><strong>① 注入时（写）：</strong>把 CaseContext 序列化成 JSON，拼在用户消息前面。LangGraph 自动把这条消息存入 Checkpointer——不管底层是 SQLite 还是 PostgreSQL。</p>
+
+<pre>messages = [
+    HumanMessage("【当前病例上下文 JSON】{年龄:56, 性别:男, ...}  ← 自动存入 Checkpointer
+                  【当前病例上下文】年龄:56岁 性别:男..."),
+    HumanMessage("这个结节风险大吗？"),
+]
+self._agent.invoke({"messages": messages}, config={"thread_id": "abc-123"})</pre>
+
+<p><strong>② 读取时（从 Checkpointer 恢复）：</strong>在历史消息里找那条带 <code class="inline">CONTEXT_MESSAGE_PREFIX</code> 的消息，直接 <code class="inline">json.loads()</code> 反序列化。</p>
+
+<pre>for message in reversed(checkpoint_messages):
+    if content.startswith("【当前病例上下文 JSON】"):
+        payload = content[前缀长度:]
+        return json.loads(payload)     <span class="cmt">← 零信息损失</span></pre>
+
+<p><strong>③ 显示时（过滤掉）：</strong>用户查看历史记录时，注入消息被 <code class="inline">_is_context_message()</code> 过滤——前端只看到正常对话。</p>
+
+<div class="box amber">
+  <strong>精确表述（纠正之前的说法）</strong>
+  之前说的"Checkpointer 是数据库"不够精确。正确的是：<strong>Checkpointer 是 LangGraph 的统一存储抽象层，它有三个实现。CaseContext 不依赖任何具体实现，只通过 Checkpointer 的统一接口读写消息。这就是"借力"——底层存储由 LangGraph 统一管理，CaseContext 只负责数据结构化。换成 PostgreSQL，CaseContext 一行代码都不用改。</strong>
+</div>
+
+<h4>Domain-Specific Context Injection 模式</h4>
+
+<p>这个设计有自己的名字——<strong>Domain-Specific Context Injection（领域特定上下文注入）</strong>。它的核心思想：</p>
+
+<ol>
+  <li><strong>LangGraph Checkpointer</strong> 管理通用的对话状态（消息序列、工具调用记录）——它不懂"患者信息"、"结节列表"这些医学概念</li>
+  <li><strong>CaseContext</strong> 管理领域特定的结构化状态（年龄、性别、结节坐标）——它不懂"对话"、"消息"这些聊天概念</li>
+  <li>每次 <code class="inline">invoke()</code> 前，CaseContext 序列化后注入到消息流中；<code class="inline">invoke()</code> 后，从工具结果中同步更新</li>
+</ol>
+
+<p>两者通过 <strong>thread_id</strong> 关联，各自按自己的方式存储，互不干扰但保持同步。</p>
+
+<h4>隔离机制：同一个 key，两个存储系统</h4>
+
+<pre>thread_id = "abc-123"                     thread_id = "def-456"
+─────────────────────                     ─────────────────────
+
+_context_cache (进程内存)                   _context_cache (进程内存)
+  "abc-123" → CaseContext                    "def-456" → CaseContext
+  {年龄:62, 结节:[...]}                      {年龄:45, 结节:[...]}
+         │                                          │
+         │ 备份（JSON 消息形式）                       │ 备份
+         ▼                                          ▼
+Checkpointer (SQLite 文件)                   Checkpointer (SQLite 文件)
+  WHERE thread_id="abc-123"                   WHERE thread_id="def-456"
+  ├─ checkpoint_1: 对话消息                     ├─ checkpoint_1: 对话消息
+  ├─ checkpoint_2: 对话消息                     ├─ checkpoint_2: 对话消息
+  └─ checkpoint_n: 【JSON】{年龄:62...}         └─ checkpoint_n: 【JSON】{年龄:45...}</pre>
+
+<h4>CaseContext 的三种创建/恢复场景</h4>
+
+<p>每次 <code class="inline">AgentExecutor.__init__()</code> 都要解决同一个问题：这个 thread_id 的 CaseContext 在哪？</p>
+
+<table>
+  <tr><th>场景</th><th>_context_cache 里有？</th><th>Checkpointer 里有？</th><th>结果</th></tr>
+  <tr>
+    <td><strong>① 全新会话</strong><br>用户刚点了"新建病例"</td>
+    <td><span class="tag-bad">❌ 没有</span></td>
+    <td><span class="tag-bad">❌ 没有</span></td>
+    <td>新建空 CaseContext{}<br>年龄、结节、知识摘要全为空<br>右栏显示"暂无病例数据"</td>
+  </tr>
+  <tr>
+    <td><strong>② 同一进程内的旧会话</strong><br>用户刚发了第 3 条消息</td>
+    <td><span class="tag-good">✅ 有</span><br>（第 1 条消息时创建的）</td>
+    <td>不管（缓存优先）</td>
+    <td>直接拿缓存的 CaseContext<br>第 1、2、3 条消息共享同一份<br>内存访问，零开销</td>
+  </tr>
+  <tr>
+    <td><strong>③ 重启后的旧会话</strong><br>进程重启了，用户打开历史</td>
+    <td><span class="tag-bad">❌ 丢了</span><br>（内存清空了）</td>
+    <td><span class="tag-good">✅ 有</span><br>（SQLite 持久化了）</td>
+    <td>从 Checkpointer 消息里找上一条 JSON<br>反序列化 → 恢复到 _context_cache<br>用户看到和重启前一模一样的病例信息</td>
+  </tr>
+</table>
+
+<div class="box green">
+  <strong>关键设计：内存缓存 + Checkpointer 备份 = 又快又可靠</strong>
+  <ul>
+    <li>同一进程内：直接读内存缓存（微秒级），不走 SQLite</li>
+    <li>进程重启后：从 Checkpointer 恢复（毫秒级），用户无感知</li>
+    <li>两者用同一个 <code class="inline">thread_id</code> 关联，CaseContext 以 JSON 消息形式存在于 Checkpointer 中</li>
+  </ul>
+</div>
+
+<h4>进程与线程视角：四个对象的生命周期全景</h4>
+
+<pre>进程生命周期
+├─────────────────────────────────────────────────────────────────┤
+│                                                                 │
+│  Checkpointer (SQLite 连接)  ← 进程级单例                      │
+│  ╔═════════════════════════════════════════════════════════════╗ │
+│  ║ 第1个请求创建 → 所有请求共享 → 进程关闭时 close() 销毁      ║ │
+│  ╚═════════════════════════════════════════════════════════════╝ │
+│                                                                 │
+│  _context_cache (类级 dict)  ← 进程级共享                       │
+│  ╔═════════════════════════════════════════════════════════════╗ │
+│  ║ 首次访问某 thread_id 时创建 → 重启丢失 → 从 Checkpointer 恢复║ │
+│  ║ {"abc-123": CaseContext(…), "def-456": CaseContext(…)}      ║ │
+│  ╚═════════════════════════════════════════════════════════════╝ │
+│                                                                 │
+│  ┌────── 请求1 ──────┐  ┌────── 请求2 ──────┐  ┌── 请求3 ────┐ │
+│  │ AgentExecutor      │  │ AgentExecutor      │  │ AgentExecutor│ │
+│  │ 创建 → invoke()    │  │ 创建 → invoke()    │  │ 创建→invoke │ │
+│  │ → GC 回收          │  │ → GC 回收          │  │ → GC 回收   │ │
+│  │                    │  │                    │  │             │ │
+│  │ LLM client          │  │ LLM client          │  │ LLM client  │ │
+│  │ 创建 → 用完 → 回收  │  │ 创建 → 用完 → 回收  │  │ 创建→回收   │ │
+│  └────────────────────┘  └────────────────────┘  └─────────────┘ │
+│       ↑ 全部共享同一个 checkpointer 和 _context_cache              │
+└─────────────────────────────────────────────────────────────────┘</pre>
+
+<table>
+  <tr><th>对象</th><th>级别</th><th>创建时机</th><th>销毁时机</th></tr>
+  <tr><td>Checkpointer (SQLite)</td><td>进程级单例</td><td>第一个请求进来</td><td>进程关闭</td></tr>
+  <tr><td>_context_cache</td><td>进程级（类变量）</td><td>首次访问某 thread_id</td><td>进程关闭（可恢复）</td></tr>
+  <tr><td>AgentExecutor</td><td>请求级</td><td>每个 HTTP/WS 请求</td><td>请求结束，GC 回收</td></tr>
+  <tr><td>LLM client</td><td>请求级</td><td>随 AgentExecutor</td><td>随 AgentExecutor，GC 回收</td></tr>
+</table>
+
+<div class="box amber">
+  <strong>为什么 AgentExecutor 和 LLM client 是请求级，而不是进程级？</strong><br>
+  因为它们没有需要跨请求共享的状态。对话历史在 Checkpointer 里，病例信息在 _context_cache 里。AgentExecutor 只是一个"执行器壳"——创建成本极低（就是 new 几个对象），用完即弃反而避免了内存泄漏和并发安全问题。
+</div>
+
+<h3>2.5 关键结论</h3>
+
+<ul>
+  <li>对话历史解决"上下文连续性"（知道刚才在聊什么）</li>
+  <li>CaseContext 解决"事实准确性"（记住关键信息，精确不丢失）</li>
+  <li>两者互补，缺一不可</li>
+</ul>
+
+<div class="box blue">
+  <strong>延伸阅读</strong>
+  <ul>
+    <li>搜 "LLM working memory vs episodic memory" — 理解认知科学中的记忆分类</li>
+    <li>LangGraph <a href="https://langchain-ai.github.io/langgraph/concepts/memory/" style="color:#60a5fa;">Memory 文档</a> — Short-term Memory 和 Long-term Memory 的分工</li>
+  </ul>
+</div>
+
+<hr>
+
+<!-- ═══════════════ 笔记三 ═══════════════ -->
+<h2 id="n3">笔记三：工具设计 — 什么时候写新工具，什么时候让 Agent 自己组合</h2>
+
+<h3>3.0 前置概念：Martin 当前是 Workflow 还是 Agent？</h3>
+
+<div class="box green">
+  <strong>一句话答案</strong>
+  Martin 是 <strong>单 Agent + 软 Workflow</strong>。没有硬编码的执行路径，所有决策权在 LLM 手里。Prompt 里的 Workflow 指引只是给 LLM 看的"说明书"，不是代码里的 if-else。
+</div>
+
+<h4>三个概念的层级关系</h4>
+
+<table>
+  <tr><th>概念</th><th>层级</th><th>解决的问题</th><th>Martin 现状</th></tr>
+  <tr>
+    <td><strong>Multi-Agent</strong></td>
+    <td>系统架构</td>
+    <td>多个专家怎么协作？</td>
+    <td><span class="tag-bad">未使用</span> 单 Agent 目前够用</td>
+  </tr>
+  <tr>
+    <td><strong>Workflow</strong></td>
+    <td>Agent 内部</td>
+    <td>任务按什么顺序执行？</td>
+    <td><span class="tag-good">软 Workflow</span> Prompt 指引，LLM 动态决策</td>
+  </tr>
+  <tr>
+    <td><strong>Tool</strong></td>
+    <td>原子能力</td>
+    <td>具体做什么？</td>
+    <td>6 个工具（analyze_image 等）</td>
+  </tr>
+</table>
+
+<p>它们不是"二选一"，而是<strong>不同层级</strong>的东西：多 Agent 系统里每个 Agent 内部可能用 Workflow 组织行为，每个 Workflow 节点可能调用 LLM 或 Tool。</p>
+
+<h4>Martin 的实际情况：全交给 LLM 动态决策</h4>
+
+<p><code class="inline">invoke()</code> 方法的核心逻辑极其简单（<code class="inline">agent.py</code>）：</p>
+
+<pre>result = self._agent.invoke(
+    {"messages": messages},
+    config=config,
+)
+<span class="cmt"># 没有任何 if-else 判断场景！全交给 LLM</span></pre>
+
+<p>Prompt 里的 Workflow 部分只是纯文本指引，不是代码：</p>
+
+<pre><span class="cmt"># 这是 Prompt 里的文字，不是代码逻辑！</span>
+- 如果医生上传 CT 文件 → 直接调用 analyze_image
+- 如果医生提供患者信息 → 调用 update_case_context
+- 如果检测完成，医生需要解释 → 调用 retrieve_knowledge</pre>
+
+<p>LLM 读完这段文字后，自己判断当前输入属于哪种情况，然后决定调哪个工具。<strong>路径不确定——同样输入可能走不同的工具链。</strong></p>
+
+<h4>什么时候应该从"软 Workflow"升级到"硬 Workflow"？</h4>
+
+<p>对照 Anthropic 的标准：</p>
+
+<div class="box amber">
+  <strong>"When a task can be clearly defined with fixed steps, use Workflow. Only use Agent when the path can't be predicted."</strong>
+  当你发现 LLM 在某个场景下经常走错路径，就是该硬编码的时候了。
+</div>
+
+<p>举个例子，假设医生上传 CT 后 LLM 有时候不调 <code class="inline">analyze_image</code> 反而先闲聊：</p>
+
+<pre><span class="cmt"># 未来可能的硬编码——但 Martin 目前不需要</span>
+def invoke(self, inputs):
+    user_input = inputs.get("input", "")
+    
+    <span class="cmt"># 检测到文件路径 → 必定先执行 analyze_image</span>
+    if self._contains_image_path(user_input):
+        detection = analyze_image.invoke(...)
+        inputs["input"] = f"检测结果：{detection}\n\n用户问题：{user_input}"
+    
+    return self._agent.invoke(...)</pre>
+
+<p><strong>但目前不需要。</strong> DeepSeek 对 Martin 的 System Prompt 理解足够好，没有报告走错路径的问题。</p>
+
+<h4>与笔记四的联系：软约束 vs 硬约束 的同构关系</h4>
+
+<p>软 Workflow 和 软约束实际上是同一套设计哲学的两种表现：</p>
+
+<table>
+  <tr><th></th><th>软（Prompt 层）</th><th>硬（Code 层）</th></tr>
+  <tr>
+    <td><strong>约束层面</strong><br>（笔记四）</td>
+    <td>Prompt 里写"输出 Markdown 格式"<br>LLM 可能遵守，也可能不遵守</td>
+    <td>代码里 <code class="inline">json.loads()</code> 校验格式<br>不合法就报错</td>
+  </tr>
+  <tr>
+    <td><strong>流程层面</strong><br>（本笔记）</td>
+    <td>Prompt 里写"如果上传 CT → 调 analyze_image"<br>LLM 可能先分析，也可能先闲聊</td>
+    <td>代码里 <code class="inline">if has_image_path: 先执行 analyze_image</code><br>必定走这条路径</td>
+  </tr>
+</table>
+
+<p><strong>判断标准完全一致：</strong>如果"出错"不可接受，用硬的。格式错误不可接受 → 硬约束。流程走错不可接受 → 硬 Workflow。目前 Martin 两个层面都在用软的——因为 DeepSeek 表现得足够好，还没到必须上硬的临界点。</p>
+
+<h4>什么时候需要多 Agent？</h4>
+
+<p>多 Agent 的标志：<strong>不同角色需要不同的 System Prompt、不同的工具集、不同的知识边界。</strong></p>
+
+<table>
+  <tr><th>状态</th><th>判断</th><th>做法</th></tr>
+  <tr>
+    <td>一个 Prompt 能写清楚所有规则</td>
+    <td>单 Agent</td>
+    <td>不同场景 = 不同 Workflow 路径</td>
+  </tr>
+  <tr>
+    <td>Prompt 太长，不同规则开始冲突</td>
+    <td>考虑拆分</td>
+    <td>不同角色 = 不同 Agent</td>
+  </tr>
+  <tr>
+    <td>不同子任务需要不同工具集</td>
+    <td><strong>需要多 Agent</strong></td>
+    <td>Orchestrator-Workers 模式</td>
+  </tr>
+</table>
+
+<p><strong>Martin 未来可能的多 Agent 场景：</strong></p>
+
+<pre>医生："这个结节是恶性的吗？需要手术吗？"
+  ↓
+Orchestrator Agent（调度员）
+  ├──→ <strong>影像分析 Agent</strong>   工具：[analyze_image, compare_nodules]
+  │     System Prompt："你是影像学专家，专注CT特征分析..."
+  │     输出：结节的位置、大小、密度、边缘特征
+  │
+  ├──→ <strong>临床决策 Agent</strong>   工具：[retrieve_knowledge, search_guidelines]
+  │     System Prompt："你是临床决策支持专家，基于指南评估..."
+  │     输出：Lung-RADS 分级、恶性概率、随访建议
+  │
+  └──→ 调度员汇总 → 综合报告</pre>
+
+<p>为什么这里需要多 Agent？影像专家和临床决策专家的"人设"完全不同，塞进同一个 Prompt 会互相干扰；影像 Agent 不需要知识库，临床 Agent 不需要 MONAI；各自的上下文窗口互不污染。</p>
+
+<div class="box green">
+  <strong>Martin 的演进路线</strong>
+  <ul>
+    <li><strong>当前</strong>：单 Agent + 软 Workflow（一个 Prompt，LLM 动态选工具）</li>
+    <li><strong>近期</strong>：单 Agent + 更复杂的 Workflow（新增 compare_nodules 工具）</li>
+    <li><strong>中长期</strong>：多 Agent（影像分析 + 临床决策 + 报告生成各自独立）</li>
+  </ul>
+</div>
+
+<hr>
+
+<h3>3.1 判断标准</h3>
+
+<div class="box green">
+  <strong>核心问题：Agent 自己能推理出多步操作吗？</strong>
+  <ul>
+    <li>能 → 让 Agent 用现有工具组合</li>
+    <li>不能 → 需要新工具</li>
+  </ul>
+</div>
+
+<h3>3.2 两个案例对比</h3>
+
+<table>
+  <tr><th>场景</th><th>Agent 能自己推理吗？</th><th>决策</th></tr>
+  <tr>
+    <td>"帮我分析这个 CT"</td>
+    <td><span class="tag-good">能</span> 输入有 CT → 我知道该调 analyze_image</td>
+    <td>现有工具，Agent 自己组合</td>
+  </tr>
+  <tr>
+    <td>"对比当前 CT 和 3 个月前 CT 的结节变化"</td>
+    <td><span class="tag-bad">不能</span> 需要：找到历史 CT 路径、坐标匹配、计算体积变化率——这些 LLM 不可能凭空推理</td>
+    <td><strong>需要新工具</strong> <code class="inline">compare_nodules</code></td>
+  </tr>
+</table>
+
+<h3>3.3 为什么"对比结节"需要新工具</h3>
+
+<p>对比结节的难点在于精确计算：</p>
+<ul>
+  <li>两个 CT 的结节坐标需要<strong>空间匹配</strong>（判断"结节 A 在两个 CT 里是同一个吗"）</li>
+  <li>直径和体积变化需要<strong>数值计算</strong>（"从 5.2mm 增长到 5.8mm，增长率 11.5%"）</li>
+  <li>这些是 LLM 的盲区——LLM 擅长"判断"但不擅长"精确计算"</li>
+</ul>
+
+<p>所以应该做成 <code class="inline">compare_nodules</code> 工具，内部用 Python 做精确坐标匹配和尺寸对比，LLM 只负责调用工具并解释结果。</p>
+
+<h3>3.4 Agent 的边界在哪里</h3>
+
+<div class="box purple">
+  <strong>LLM 擅长</strong>
+  <ul>
+    <li>理解自然语言意图</li>
+    <li>判断"接下来该做什么"</li>
+    <li>解释和总结</li>
+    <li>灵活处理未预见的场景</li>
+  </ul>
+  <strong>LLM 不擅长</strong>
+  <ul>
+    <li>精确数值计算</li>
+    <li>确定性逻辑（if-else 分支）</li>
+    <li>需要多个步骤精确配合的流程</li>
+    <li>访问外部系统（数据库、API）</li>
+  </ul>
+</div>
+
+<p><strong>好的 Agent 设计 = LLM 做决策 + 代码做执行。</strong>工具是连接两者的桥梁。</p>
+
+<h3>3.5 Martin 项目的 6 个工具分类</h3>
+
+<table>
+  <tr><th>类别</th><th>工具</th><th>LLM 做什么</th><th>代码做什么</th></tr>
+  <tr><td>感知</td><td><code>analyze_image</code></td><td>判断要不要调</td><td>下载文件、MONAI 推理、返回结果</td></tr>
+  <tr><td>知识</td><td><code>search_medical_knowledge</code></td><td>判断搜什么关键词</td><td>向量检索、RAG 召回</td></tr>
+  <tr><td>行动</td><td><code>generate_report</code></td><td>理解报告类型和需求</td><td>格式化、模板填充</td></tr>
+  <tr><td>推理</td><td><code>extract_patient_info</code></td><td>从对话中识别信息</td><td>结构化提取、更新 CaseContext</td></tr>
+  <tr><td>存储</td><td><code>upload_to_oss</code></td><td>判断文件路径</td><td>MinIO 上传</td></tr>
+  <tr><td>存储</td><td><code>download_from_oss</code></td><td>判断哪个对象要下载</td><td>MinIO 下载</td></tr>
+</table>
+
+<p>每个工具都是"LLM 决策 + 代码执行"的分工：LLM 决定用哪个工具、传什么参数，代码负责精确执行。</p>
+
+<h3>3.6 关键结论</h3>
+
+<ul>
+  <li>判断标准：Agent 自己能推理出多步操作吗？</li>
+  <li>LLM 擅长判断，不擅长精确计算</li>
+  <li>工具是 LLM 和代码的分界线</li>
+</ul>
+
+<div class="box blue">
+  <strong>延伸阅读</strong>
+  Anthropic <a href="https://www.anthropic.com/engineering/building-effective-agents" style="color:#60a5fa;">Building effective agents</a> — "When to use frameworks vs. when to keep it simple" 部分。
+</div>
+
+<h3>3.7 对照 Anthropic "Building Effective Agents" 深入解读</h3>
+
+<h4>3.7.1 Anthropic 的核心原则</h4>
+
+<div class="box green">
+  <strong>"Success isn't about building the most sophisticated system — it's about building the right system for your needs. Start with simple solutions, only add complexity when it demonstrably improves outcomes."</strong>
+  不是比谁架构更复杂，而是比谁更合适。从最简单的方案开始，只在被证明有效时才加复杂度。
+</div>
+
+<p>这就是 Q3 的决策框架本身——"要不要做新工具"不是拍脑袋决定，而是先问：<strong>现有方案真的不够用吗？</strong></p>
+
+<h4>3.7.2 对照五种 Workflow 模式：Q3 的场景分析</h4>
+
+<p>Anthropic 描述了 5 种 Workflow 模式。Q3（"对比两次 CT 的结节变化"）适合哪种？</p>
+
+<p><strong>不适合：Prompt Chaining（提示链）</strong></p>
+
+<pre>analyze_image(CT-1) → LLM解读 → analyze_image(CT-2) → LLM解读 → LLM自己对比
+<span class="tag-bad">问题：LLM 在最后一步无法做精确的结节匹配和数值对比，会幻觉</span></pre>
+
+<p><strong>适合：Orchestrator-Workers + 专用工具</strong></p>
+
+<pre>               ┌── analyze_image(CT-1) → 结节列表1
+Orchestrator ──┤
+  (LLM)        └── analyze_image(CT-2) → 结节列表2
+                      ↓
+               <strong>compare_nodules</strong>(列表1, 列表2)  ← 新工具（确定性算法）
+                      ↓
+               LLM 解读对比结果 → 报告</pre>
+
+<p>这里 <code class="inline">compare_nodules</code> 就是那个<strong>应该做成新工具</strong>的东西。它不是让 LLM 去算，而是内部用确定性算法：</p>
+
+<ul>
+  <li><strong>坐标匹配</strong>：基于解剖标志的刚性配准 + 匈牙利算法做结节配对</li>
+  <li><strong>精确计算</strong>：体积变化率、直径变化量——这些 LLM 的数学能力不可靠</li>
+  <li><strong>结构化输出</strong>：返回配对结果和变化数据，供 LLM 解读（不是自然语言）</li>
+</ul>
+
+<h4>3.7.3 工具设计三原则（Appendix 2）+ compare_nodules 对照</h4>
+
+<p>Anthropic 附录给出了工具设计的三个原则，直接指导 <code class="inline">compare_nodules</code> 的设计：</p>
+
+<table>
+  <tr><th>原则</th><th>含义</th><th>compare_nodules 怎么做</th></tr>
+  <tr>
+    <td><strong>1. Give tokens to think</strong></td>
+    <td>工具描述像给初级开发者写的 docstring：用途、何时用、输入输出格式、边界条件、与其它工具的区别</td>
+    <td>明确写"何时调用：医生要求对比两次检查时"；列出 matched_pairs / unmatched / registration_quality 字段；区分与 analyze_image 的职责</td>
+  </tr>
+  <tr>
+    <td><strong>2. Keep format natural</strong></td>
+    <td>输入输出格式自然衔接，不给 LLM 增加格式转换负担</td>
+    <td>输入直接接受 analyze_image 的原生输出，LLM 不需要重新格式化；输出结构化数据直接可用于报告</td>
+  </tr>
+  <tr>
+    <td><strong>3. No formatting overhead</strong></td>
+    <td>避免让 LLM 做无聊的格式工作</td>
+    <td>LLM 只负责解读临床意义和生成自然语言报告，坐标对齐和数值计算完全由工具内部处理</td>
+  </tr>
+</table>
+
+<p><strong>具体工具描述示例（Anthropic 风格）：</strong></p>
+
+<pre>"""compare_nodules: 对比两次 CT 扫描的肺结节变化。
+
+<b>何时调用</b>：医生明确要求对比两次检查结果时（如"和上次比怎么样了"）。
+
+<b>输入</b>：两次 analyze_image 的返回结果（结节列表，含位置/直径/体积）。
+<b>输出</b>：每个结节的配对结果和变化量：
+  - matched_pairs: [{nodule_1_id, nodule_2_id, volume_change_pct, 
+                      diameter_change_mm, status}]
+  - unmatched_1: [仅在旧片出现的结节]
+  - unmatched_2: [仅在新片出现的结节]
+  - registration_quality: 配准质量评分 (0-1)
+
+<b>与 analyze_image 的区别</b>：analyze_image 是单次检测，compare_nodules 是纵向对比。
+<b>边界条件</b>：如果配准质量 < 0.5，结果可能不可靠，需提醒医生。
+"""</pre>
+
+<h4>3.7.4 三步判断法（通用）</h4>
+
+<p>以后遇到"要不要做成新工具"的问题，用这个框架：</p>
+
+<pre>1. 这个任务的<strong>难点</strong>是什么？
+   ├── 语义理解 / 自然语言生成 → LLM 能做 → 不需要新工具
+   └── 精确计算 / 空间推理 / 确定性操作 → LLM 不能做 → 继续判断
+
+2. 现有工具<strong>组合</strong>能否覆盖？
+   ├── 能 → 不需要新工具（Anthropic: "start simple"）
+   └── 不能 → 新工具
+
+3. 新工具的<strong>复杂度</strong>是否可接受？
+   ├── 需要新模型/新数据库/新算法 → 谨慎，可能过度设计
+   └── 只是编排现有能力 + 确定性算法 → 合理</pre>
+
+<div class="box amber">
+  <strong>对 Q3 的最终结论</strong>
+  难点是空间配准 + 精确计算 → LLM 不能做 → 现有工具不能覆盖 → 需要新工具。但它只是编排现有的 analyze_image + 确定性匹配算法，复杂度可接受。<strong>应该做，放在 Roadmap 短期规划中。</strong>
+</div>
+
+<hr>
+
+<!-- ═══════════════ 笔记四 ═══════════════ -->
+<h2 id="n4">笔记四：Prompt 的边界 — 软约束与硬约束</h2>
+
+<h3>4.1 核心认知：Prompt 不是"命令"，而是"建议"</h3>
+
+<div class="box red">
+  <strong>关键理解</strong>
+  Prompt 里的规则是 <strong>软约束</strong>，不是硬约束。LLM 可以无视它们。你越是在 Prompt 里堆规则，越可能被忽略（上下文太长，LLM 注意力分散）。
+</div>
+
+<p>你写"请用结构化 Markdown 输出"，LLM 可能输出 Markdown，也可能不输出。你写"绝对不能泄露患者姓名"，LLM 可能泄露，也可能不泄露。它只是"尽量"遵守，没有"强制"机制。</p>
+
+<h3>4.2 Prompt 能解决什么 vs 不能解决什么</h3>
+
+<table>
+  <tr><th>Prompt 能解决</th><th>Prompt 不能解决</th></tr>
+  <tr><td>风格引导："不要用模板化表达"</td><td>精确计算："结节体积增长 23.7%"</td></tr>
+  <tr><td>角色定位："你是医学影像 Copilot"</td><td>格式强制："必须输出合法 JSON"</td></tr>
+  <tr><td>简单约束："最多问 3 个问题"</td><td>安全约束："绝对不能泄露患者姓名"</td></tr>
+  <tr><td>思维引导："先分析再回答"</td><td>数据一致性："结节数必须和检测结果一致"</td></tr>
+</table>
+
+<h3>4.3 软约束 vs 硬约束的对比</h3>
+
+<table>
+  <tr><th></th><th>软约束（Prompt）</th><th>硬约束（Code）</th></tr>
+  <tr><td>如何实现</td><td>在 System Prompt 里写规则</td><td>在代码里写校验逻辑</td></tr>
+  <tr><td>可靠性</td><td>不确定，LLM 可能忽略</td><td>100% 确定</td></tr>
+  <tr><td>适用场景</td><td>风格、角色、行为引导</td><td>格式校验、数据提取、安全控制</td></tr>
+  <tr><td>Martin 示例</td><td>"报告必须结构化"（prompt.py）</td><td>用正则提取结节直径（routers/image.py）</td></tr>
+</table>
+
+<h3>4.4 Martin 项目中的"硬约束"实例</h3>
+
+<p>在 <code class="inline">api/routers/image.py</code> 中，<code class="inline">analyze_image</code> 工具返回的文本是自由格式的，但 API 路由用正则表达式强行提取结构化数据：</p>
+
+<pre>原始文本: "检测到结节总数: 3\n结节 1: 最大直径: 5.2mm\n  检测置信度: 0.95"
+
+正则提取（代码层硬约束）:
+  total_match = r"检测到结节总数:\s*(\d+)"     → 3
+  diameter    = r"最大直径:\s*([\d.]+)"        → 5.2
+  score       = r"检测置信度:\s*([\d.]+)"       → 0.95</pre>
+
+<p>这就是典型的"硬约束"：不管 LLM 输出的文本格式多乱，正则都能准确提取数字。如果让 LLM 自己输出 JSON，可能格式错误、字段缺失——但正则不会。</p>
+
+<h3>4.5 工程实践：什么时候用代码层约束</h3>
+
+<p>一个简单判断：<strong>如果"出错"是不可接受的，就用代码层约束。</strong></p>
+
+<ul>
+  <li>患者年龄不能为负数 → 代码校验</li>
+  <li>报告格式不能错乱 → 用模板 + 代码填充，不让 LLM 自由发挥</li>
+  <li>结节数量必须和检测结果一致 → 代码计数，LLM 只负责解释</li>
+  <li>对话语气可以友好一点 → Prompt 引导</li>
+</ul>
+
+<h3>4.6 关键结论</h3>
+
+<ul>
+  <li>Prompt 是软约束，Code 是硬约束</li>
+  <li>Agent 系统需要两者配合：Prompt 引导行为，Code 确保可靠性</li>
+  <li>判断标准：如果出错不可接受，用代码层硬约束</li>
+</ul>
+
+<div class="box blue">
+  <strong>延伸阅读</strong>
+  <ul>
+    <li>OpenAI <a href="https://platform.openai.com/docs/guides/prompt-engineering" style="color:#60a5fa;">Prompt engineering guide</a></li>
+    <li>OpenAI <a href="https://platform.openai.com/docs/guides/structured-outputs" style="color:#60a5fa;">Structured Outputs</a> — 用 JSON Schema 约束输出格式，可靠度远超 Prompt 里写"请输出 JSON"</li>
+  </ul>
+</div>
+
+<!-- ══ 4.7 新增：Martin Prompt 优化实战 ══ -->
+<h3>4.7 Martin Prompt 优化实战（2026-07-19）</h3>
+
+<h4>优化前的问题</h4>
+
+<p>对照 OpenAI Prompt Engineering 指南，Martin 的 <code class="inline">prompt.py</code> 存在三个问题：</p>
+
+<table>
+  <tr><th>问题</th><th>表现</th><th>严重程度</th></tr>
+  <tr>
+    <td>规则平铺无分层</td>
+    <td>50+ 条规则不分主次堆在一起，LLM 注意力稀释；服务方式、工具列表、工作流程、安全规则混在一个平面</td>
+    <td>中</td>
+  </tr>
+  <tr>
+    <td>完全缺失 Few-shot 示例</td>
+    <td>0 个示例。OpenAI 官方强烈推荐"Provide examples of possible inputs, along with the desired output"</td>
+    <td><strong>高</strong></td>
+  </tr>
+  <tr>
+    <td>工作流写成固定流水线</td>
+    <td>写成了 1→2→3→4→5 的顺序执行，但 ReAct Agent 是条件式执行，不是固定顺序</td>
+    <td>中</td>
+  </tr>
+</table>
+
+<h4>对照 OpenAI 官方指南的结构重组</h4>
+
+<table>
+  <tr><th>OpenAI 推荐结构</th><th>Martin 优化后</th><th>改动说明</th></tr>
+  <tr>
+    <td><strong>Identity</strong></td>
+    <td><code class="inline"># Identity</code></td>
+    <td>标题从中文【】改为 Markdown #，对齐 OpenAI 推荐格式</td>
+  </tr>
+  <tr>
+    <td><strong>Instructions</strong></td>
+    <td><code class="inline"># Tools</code> → <code class="inline"># Workflow</code> → <code class="inline"># Rules</code></td>
+    <td>拆成三个子区块：工具说明 + 条件式工作流 + 分层规则</td>
+  </tr>
+  <tr>
+    <td><strong>Examples</strong></td>
+    <td><code class="inline"># Examples</code>（4 个场景）</td>
+    <td>从 <strong>0 个 → 4 个</strong>：上传CT、补充信息+检索、纯知识问答、生成报告</td>
+  </tr>
+  <tr>
+    <td><strong>Context</strong></td>
+    <td>运行时注入</td>
+    <td>不变，仍然在 <code class="inline">agent.py</code> 的 <code class="inline">invoke()</code> 里注入 <code class="inline">【当前病例上下文】</code></td>
+  </tr>
+</table>
+
+<h4>具体改动清单</h4>
+
+<table>
+  <tr><th>改动</th><th>优化前</th><th>优化后</th></tr>
+  <tr>
+    <td>标题格式</td>
+    <td>中文方括号【服务方式】【重要规则】</td>
+    <td>Markdown <code class="inline"># Identity</code> <code class="inline">## Tools</code> <code class="inline">### analyze_image</code></td>
+  </tr>
+  <tr>
+    <td>工具说明</td>
+    <td>平铺清单："1. analyze_image: ..."</td>
+    <td>每个工具一个子标题 + <strong>何时调用</strong> 触发条件</td>
+  </tr>
+  <tr>
+    <td>工作流</td>
+    <td>"1.接收影像→2.信息同步→3.医学解释→4.病例总结→5.报告生成"（固定顺序）</td>
+    <td>"如果医生上传CT → 直接调用 analyze_image""如果医生提供患者信息 → 调用 update_case_context"（条件式）</td>
+  </tr>
+  <tr>
+    <td>规则合并</td>
+    <td>"缺失信息标注未提供"出现了 2 次（服务方式 + 安全规则）</td>
+    <td>合并到 Medical Safety — "不得虚构：缺失信息标注'未提供'"</td>
+  </tr>
+  <tr>
+    <td>规则分层</td>
+    <td>32 条规则混在 6 个区块里</td>
+    <td>Output Format（软约束，3条）→ Medical Safety（硬底线，6条）</td>
+  </tr>
+  <tr>
+    <td>Few-shot 示例</td>
+    <td>0 个</td>
+    <td>4 个（数据来自真实审计日志 <code class="inline">audit/677326aa_*.jsonl</code>）</td>
+  </tr>
+</table>
+
+<h4>Few-shot 示例的数据来源</h4>
+
+<p>四个示例全部基于真实运行日志，不是编造的：</p>
+
+<table>
+  <tr><th>示例</th><th>数据来源</th><th>关键信息</th></tr>
+  <tr>
+    <td>上传 CT 自动分析</td>
+    <td><code class="inline">audit/677326aa</code> L1</td>
+    <td>医生直接给 CT 路径 → Agent 调 analyze_image → 检测到 3 个结节（4.53/3.70/6.73mm）</td>
+  </tr>
+  <tr>
+    <td>补充患者信息 + 知识检索</td>
+    <td><code class="inline">audit/677326aa</code> L4-5</td>
+    <td>"患者 62 岁男性，20 年吸烟史" → update_case_context + retrieve_knowledge 同一微秒并行</td>
+  </tr>
+  <tr>
+    <td>纯知识问答</td>
+    <td><code class="inline">audit/677326aa</code> L5 改编</td>
+    <td>根据检测结果检索 Lung-RADS，对应的知识问答场景</td>
+  </tr>
+  <tr>
+    <td>生成报告</td>
+    <td><code class="inline">audit/677326aa</code> L14</td>
+    <td>generate_report 输出真实报告格式（患者资料→检查信息→影像所见→风险评估→数据限制→AI声明）</td>
+  </tr>
+</table>
+
+<div class="box green">
+  <strong>设计决策：为什么把规则变成示例</strong><br>
+  给 LLM 写 10 条规则，不如给它看 1 个例子。例子让 LLM 直接模仿输出的结构和语气，比规则更高效。<br>
+  这也是 OpenAI 官方指南的核心建议——<strong>Examples 不是锦上添花，是 Prompt 的必需组成部分</strong>。
+</div>
+
+<div class="box amber">
+  <strong>变更风险提示</strong><br>
+  示例引导了 Agent 的输出风格（特别是报告格式和"数据限制"标注方式）。如果 Agent 行为出现预期外的变化（比如生成的报告包含示例中的具体数值幻觉），需要检查示例是否被 LLM 误当作真实病例数据来使用。可以通过在示例末尾标注"仅作格式参考，勿用于实际病例"来降低风险。
+</div>
+
+<hr>
+
+<!-- ═══════════════ 笔记五 ═══════════════ -->
+<h2 id="n5">笔记五：分层架构 — 为什么核心引擎不能和 HTTP 层混在一起</h2>
+
+<h3>5.1 什么是"端口与适配器"架构</h3>
+
+<p>也叫做 <strong>Hexagonal Architecture（六边形架构）</strong> 或 <strong>Clean Architecture</strong>。核心思想：</p>
+
+<div class="box green">
+  <strong>核心原则</strong>
+  业务逻辑（核心引擎）不应该依赖任何外部通信方式（HTTP、CLI、WebSocket、微信消息...）。反过来，外部通信方式可以依赖核心引擎。
+</div>
+
+<h3>5.2 Martin 项目的分层</h3>
+
+<div class="arch-row">
+  <div class="arch-cell blue"><strong>CLI 终端</strong><br>martin/__main__.py<br>input() + print()</div>
+  <div class="arch-cell blue"><strong>FastAPI</strong><br>api/routers/agent.py<br>HTTP + WebSocket</div>
+  <div class="arch-cell blue"><strong>微信小程序</strong><br>（未来）<br>wx.request()</div>
+</div>
+<div class="arch-row" style="justify-content:center;">
+  <div class="arch-arrow">↓↓ 全部调用同一个函数 ↓↓</div>
+</div>
+<div class="arch-row" style="justify-content:center;">
+  <div class="arch-cell green" style="max-width:500px;"><strong>martin/agent/agent.py</strong><br>create_agent() → agent.invoke()<br>完全不感知谁在调用它</div>
+</div>
+
+<h3>5.3 反面教材：如果混在一起会怎样</h3>
+
+<pre><span class="tag-bad">错误做法</span> — 把 Agent 逻辑写在 FastAPI 路由里
+
+<span class="inline">api/routers/agent.py</span>
+  def agent_chat():
+    llm = ChatOpenAI(...)           ← Agent 逻辑
+    tools = [analyze_image, ...]    ← Agent 逻辑
+    agent = create_agent(...)        ← Agent 逻辑
+    result = agent.invoke(...)       ← Agent 逻辑
+    return result
+
+如果要做微信小程序：
+  → 需要新建 wechat/ 项目
+  → 但 Agent 逻辑全在 api/ 里，没法复用
+  → 要么复制粘贴一份（维护噩梦），要么重构（成本巨大）</pre>
+
+<pre><span class="tag-good">正确做法</span> — Agent 逻辑独立，各层只做翻译
+
+<span class="inline">api/routers/agent.py</span>
+  def agent_chat():
+    agent = create_agent(thread_id, checkpointer)  ← 调用核心引擎
+    result = agent.invoke({"input": user_message})  ← 调用核心引擎
+    return ChatResponse(output=result["output"])   ← 只做 HTTP 格式转换
+
+<span class="inline">wechat/handler.py</span>（未来新建）
+  def handle_message():
+    agent = create_agent(thread_id, checkpointer)  ← 同样的调用
+    result = agent.invoke({"input": user_message})  ← 同样的调用
+    return TextMessage(content=result["output"])   ← 只做微信消息格式转换</pre>
+
+<h3>5.4 为什么这很重要</h3>
+
+<table>
+  <tr><th>混在一起</th><th>分离后</th></tr>
+  <tr>
+    <td>接入新平台 = 复制 Agent 逻辑 = 两份代码维护</td>
+    <td>接入新平台 = 新建一个翻译层 = 核心代码 0 改动</td>
+  </tr>
+  <tr>
+    <td>改 Agent 逻辑要改 N 个文件</td>
+    <td>改 Agent 逻辑只改 martin/ 一个文件</td>
+  </tr>
+  <tr>
+    <td>测试 Agent 需要启动 HTTP 服务</td>
+    <td>测试 Agent 可以直接 `agent.invoke()`</td>
+  </tr>
+  <tr>
+    <td>HTTP 层的 bug 可能影响 Agent 逻辑</td>
+    <td>两层隔离，互不影响</td>
+  </tr>
+</table>
+
+<h3>5.5 验证：CLI 和 Web 调用的是同一个函数吗</h3>
+
+<p>对比两个入口，自己看：</p>
+
+<p><strong>CLI 版（martin/__main__.py）：</strong></p>
+<pre>executor = build_agent(thread_id=session_id, checkpointer=checkpointer)
+result = executor.invoke({"input": user_input})</pre>
+
+<p><strong>Web 版（api/routers/agent.py）：</strong></p>
+<pre>agent = create_agent(thread_id=session_id, checkpointer=checkpointer, verbose=False)
+result = await asyncio.to_thread(agent.invoke, {"input": final_input})</pre>
+
+<p>唯一的区别：CLI 版用 <code class="inline">build_agent()</code>（多了日志回调），Web 版用 <code class="inline">create_agent()</code>（不需要日志）。核心调用 <code class="inline">agent.invoke()</code> 完全一样。</p>
+
+<h3>5.6 关键结论</h3>
+
+<ul>
+  <li>核心引擎不依赖任何外部通信方式</li>
+  <li>每增加一种接入方式（微信、桌面 App、API...），只需新建一个翻译层</li>
+  <li>核心代码 0 改动</li>
+  <li>这就是"端口与适配器"架构的核心价值</li>
+</ul>
+
+<div class="box blue">
+  <strong>延伸阅读</strong>
+  <ul>
+    <li>搜 "Clean Architecture" 或 "Hexagonal Architecture" — 理解端口与适配器模式</li>
+    <li>实际对比 Martin 项目中 <code class="inline">martin/__main__.py</code>（CLI）和 <code class="inline">api/routers/agent.py</code>（Web）的 <code class="inline">agent.invoke()</code> 调用，看它们是不是完全一样</li>
+  </ul>
+</div>
+
+<hr>
+
+<!-- ═══════════════ 总结 ═══════════════ -->
+<h2>总结：五篇笔记的核心脉络</h2>
+
+<table>
+  <tr><th>笔记</th><th>核心概念</th><th>一句话</th></tr>
+  <tr>
+    <td>一、ReAct</td>
+    <td>Thought → Action → Observation 循环</td>
+    <td>Agent 不是"看到问题直接回答"，而是"想一步做一步"</td>
+  </tr>
+  <tr>
+    <td>二、双记忆</td>
+    <td>对话历史 + 结构化事实</td>
+    <td>对话历史解决"刚才在聊什么"，CaseContext 解决"关键事实是什么"</td>
+  </tr>
+  <tr>
+    <td>三、工具设计</td>
+    <td>LLM 决策 + 代码执行</td>
+    <td>LLM 擅长判断，不擅长精确计算。工具是两者的分界线</td>
+  </tr>
+  <tr>
+    <td>四、Prompt 边界</td>
+    <td>软约束 vs 硬约束</td>
+    <td>Prompt 是建议，Code 是保障。两者配合才是可靠的 Agent</td>
+  </tr>
+  <tr>
+    <td>五、分层架构</td>
+    <td>端口与适配器</td>
+    <td>核心引擎不依赖任何外部通信方式，接入新平台只需新建翻译层</td>
+  </tr>
+</table>
+
+<div class="box green" style="margin-top: 20px;">
+  <strong>学习建议</strong>
+  建议从笔记四（Prompt 边界）开始，因为它直接关系到你对 Agent 系统的理解是否准确。Prompt 不是魔法——它只是给 LLM 的"建议书"，真正的可靠性来自代码层的硬约束。
+</div>
+
+<p style="color:#6b7280; text-align:center; font-size:0.85em; margin-top:40px;">Martin Medical AI Agent — 学习笔记 · 2026-07-18</p>
+
+</div>
+</body>
+</html>

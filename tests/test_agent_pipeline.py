@@ -14,7 +14,9 @@ class TestAgentInitialization:
 
         agent = create_agent(verbose=False)
         assert agent is not None
-        assert len(agent.tools) == 4
+        # 默认加载六个核心工具：analyze_image / retrieve_knowledge /
+        # generate_report / update_case_context / upload_to_oss / download_from_oss
+        assert len(agent.tools) == 6
         assert agent.handle_parsing_errors is True
 
     def test_agent_system_prompt_contains_reasoning(self):
@@ -24,7 +26,8 @@ class TestAgentInitialization:
         assert "reasoning" in SYSTEM_PROMPT
         assert "推理" in SYSTEM_PROMPT
         assert "审计溯源" in SYSTEM_PROMPT
-        assert "模拟专业医生的门诊沟通方式" in SYSTEM_PROMPT
+        # 面向临床医生的 Copilot 定位
+        assert "AI Medical Imaging Copilot" in SYSTEM_PROMPT
         assert "中文和英文" in SYSTEM_PROMPT
         assert "你不是现实中的执业医生" in SYSTEM_PROMPT
 
@@ -45,6 +48,8 @@ class TestAgentInitialization:
         assert "retrieve_knowledge" in tool_names
         assert "generate_report" in tool_names
         assert "update_case_context" in tool_names
+        assert "upload_to_oss" in tool_names
+        assert "download_from_oss" in tool_names
 
 
 class TestAuditLogger:

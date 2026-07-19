@@ -349,9 +349,12 @@ def create_agent(
     """创建 Agent 执行器。
 
     Args:
-        tools: 工具列表，默认为三个核心工具。
+        tools: 工具列表，默认为六个核心工具：
+               analyze_image / retrieve_knowledge / generate_report /
+               update_case_context / upload_to_oss / download_from_oss。
         verbose: 是否打印详细日志。
         thread_id: 会话 ID，同一 thread_id 的多次调用共享记忆。
+        checkpointer: 可选的检查点保存器，默认 None 时使用 SqliteSaver。
 
     Returns:
         AgentExecutor 实例。
