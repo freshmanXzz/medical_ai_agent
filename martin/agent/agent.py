@@ -8,18 +8,23 @@
 - 思维日志 → log/agent_thinking/YYYY-MM-DD.log（Agent 推理过程、工具调用参数、完整 reasoning）
 - 审计日志 → audit/{session_id}.jsonl（结构化 reasoning 审计溯源）
 """
-import json
 import logging
 import os
 from datetime import datetime
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Annotated, Any, Dict, List, Optional, Tuple, TypedDict
 
-from langchain.agents import create_agent as create_langchain_agent
 from langchain_core.agents import AgentAction
 from langchain_core.callbacks import BaseCallbackHandler
-from langchain_core.messages import AIMessage, ToolMessage
+from langchain_core.messages import AIMessage, BaseMessage, SystemMessage, ToolMessage
 from langchain_core.tools import BaseTool
 from langgraph.checkpoint.base import BaseCheckpointSaver
+from langgraph.graph.message import add_messages
+from langgraph.managed import IsLastStep, RemainingSteps
+
+# 使用 langgraph.prebuilt.create_react_agent 而非 langchain.agents.create_agent，
+# 因为前者支持 prompt Callable（动态注入 CaseContext），后者仅有静态 system_prompt。
+# 弃用警告预计在 LangGraph V2.0 才移除，当前 V1.x 可安全使用。
+from langgraph.prebuilt import create_react_agent as create_langchain_agent
 
 from martin.agent import (
     analyze_image,
@@ -34,7 +39,6 @@ from martin.agent.case_context import CaseContext
 from martin.agent.tools import reset_case_context, set_case_context
 from martin.llm.chat_model import get_chat_model
 from martin.agent.sessions import (
-    CONTEXT_MESSAGE_PREFIX,
     SessionManager,
     get_default_checkpointer,
 )
@@ -168,6 +172,52 @@ class AgentLoggingHandler(BaseCallbackHandler):
         return {"input": str(raw)[:200]}
 
 
+# ─── State Schema 与 Prompt 构造 ─────────────────────────────
+
+
+class MartinState(TypedDict):
+    """Martin Agent 的 State Schema，扩展 LangGraph 默认 State。"""
+
+    messages: Annotated[list[BaseMessage], add_messages]
+    is_last_step: IsLastStep
+    remaining_steps: RemainingSteps
+    case_context: dict  # CaseContext.to_dict() 的序列化结果
+
+
+def _build_prompt(state: MartinState) -> list:
+    """从 state 中提取 case_context，动态生成完整消息列表。
+
+    LangGraph 的 create_react_agent 在 prompt 为 Callable 且返回 list 时，
+    会用返回值完全替换 LLM 的输入消息列表。因此必须包含 state["messages"]，
+    否则对话历史和用户输入会丢失。
+    """
+    messages = state.get("messages", [])
+    ctx_dict = state.get("case_context") or {}
+
+    system_messages = []
+    if ctx_dict:
+        try:
+            ctx = CaseContext.from_dict(ctx_dict)
+            context_str = ctx.to_context_string(max_nodules=5)
+            if context_str:
+                system_messages = [
+                    SystemMessage(content=SYSTEM_PROMPT),
+                    SystemMessage(
+                        content=(
+                            f"【当前病例上下文】\n{context_str}\n\n"
+                            "请基于以上病例信息理解后续问题。"
+                        )
+                    ),
+                ]
+        except Exception:
+            pass
+
+    if not system_messages:
+        system_messages = [SystemMessage(content=SYSTEM_PROMPT)]
+
+    return system_messages + list(messages)
+
+
 # ─── Agent 执行器 ───────────────────────────────────────────
 
 class AgentExecutor:
@@ -177,9 +227,6 @@ class AgentExecutor:
     自动保持多轮对话记忆，底层走 DeepSeek 原生 Function Calling。
     支持在同一会话（thread_id）的多个实例间共享病例上下文。
     """
-
-    # 类级别缓存，用于同一线程 ID 的多个 AgentExecutor 实例共享病例上下文
-    _context_cache: Dict[str, CaseContext] = {}
 
     def __init__(
         self,
@@ -197,20 +244,20 @@ class AgentExecutor:
         # 会话记忆：同一 thread_id 的多次 invoke 自动保持历史
         memory = checkpointer or get_default_checkpointer()
 
-        # 优先使用进程缓存；重启后从 checkpoint 的结构化消息恢复。
-        if self.thread_id not in AgentExecutor._context_cache:
-            saved_context = SessionManager(memory).get_case_context(self.thread_id)
-            AgentExecutor._context_cache[self.thread_id] = (
-                CaseContext.from_dict(saved_context) if saved_context else CaseContext()
-            )
-        self.case_context = AgentExecutor._context_cache[self.thread_id]
+        # 从 Checkpointer 的 state 恢复 CaseContext，若无则新建
+        saved_context = SessionManager(memory).get_case_context(self.thread_id)
+        if saved_context:
+            self.case_context = CaseContext.from_dict(saved_context)
+        else:
+            self.case_context = CaseContext()
 
         llm = get_chat_model()
 
         self._agent = create_langchain_agent(
             model=llm,
             tools=tools,
-            system_prompt=SYSTEM_PROMPT,
+            state_schema=MartinState,
+            prompt=_build_prompt,
             checkpointer=memory,
         )
 
@@ -231,22 +278,7 @@ class AgentExecutor:
             含 "output" 和 "intermediate_steps" 的字典。
         """
         user_input = inputs.get("input", "")
-
-        # 构造消息：若存在病例上下文则先注入上下文摘要
-        context_str = self.case_context.to_context_string(max_nodules=5)
-        if context_str:
-            context_json = json.dumps(self.case_context.to_dict(), ensure_ascii=False)
-            messages = [
-                (
-                    "human",
-                    f"{CONTEXT_MESSAGE_PREFIX}{context_json}\n\n"
-                    f"【当前病例上下文】\n{context_str}\n\n"
-                    "请基于以上病例信息理解后续问题。",
-                ),
-                ("human", user_input),
-            ]
-        else:
-            messages = [("human", user_input)]
+        messages = [("human", user_input)]
 
         # langgraph 的 thread_id 配置
         config = {"configurable": {"thread_id": self.thread_id}}
@@ -259,7 +291,10 @@ class AgentExecutor:
         token = set_case_context(self.case_context)
         try:
             result = self._agent.invoke(
-                {"messages": messages},
+                {
+                    "messages": messages,
+                    "case_context": self.case_context.to_dict(),
+                },
                 config=config,
             )
         except Exception as e:
@@ -270,6 +305,12 @@ class AgentExecutor:
             }
         finally:
             reset_case_context(token)
+
+        # 从返回的 state 中读取最新的 case_context
+        if isinstance(result, dict) and "case_context" in result:
+            latest_ctx = result.get("case_context")
+            if latest_ctx:
+                self.case_context = CaseContext.from_dict(latest_ctx)
 
         all_messages = result.get("messages", [])
         parsed_result = self._parse_result(all_messages)

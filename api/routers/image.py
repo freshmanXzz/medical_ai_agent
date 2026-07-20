@@ -118,17 +118,17 @@ def analyze_ct_image(request: DetectRequest):
     resolved_path = _resolve_image_path(request.image_path)
     is_from_oss = is_oss_path(request.image_path)
 
-    from martin.agent.agent import AgentExecutor
-    from martin.agent.case_context import CaseContext
-    from martin.agent.sessions import SessionManager, get_default_checkpointer
+    from martin.agent.agent import create_agent
+    from martin.agent.sessions import get_default_checkpointer
     from martin.agent.tools import analyze_image, reset_case_context, set_case_context
 
-    if request.session_id not in AgentExecutor._context_cache:
-        saved_context = SessionManager(get_default_checkpointer()).get_case_context(request.session_id)
-        AgentExecutor._context_cache[request.session_id] = (
-            CaseContext.from_dict(saved_context) if saved_context else CaseContext()
-        )
-    case_context = AgentExecutor._context_cache[request.session_id]
+    # 创建 Agent 实例，从 Checkpointer state 恢复 CaseContext
+    agent = create_agent(
+        thread_id=request.session_id,
+        checkpointer=get_default_checkpointer(),
+        verbose=False,
+    )
+    case_context = agent.case_context
     token = set_case_context(case_context)
     try:
         raw_text = analyze_image.invoke({"image_path": str(resolved_path)})

@@ -114,9 +114,17 @@
         </div>
       </el-card>
 
-      <!-- 右栏：病例上下文 -->
+      <!-- 右栏：病例上下文 + 知识摘要 -->
       <div class="context-column">
-        <CaseContextPanel :case-context="caseStore.caseContext" />
+        <PatientContextPanel :case-context="caseStore.caseContext" />
+        <KnowledgeSummaryPanel
+          :knowledge-summary="caseStore.caseContext?.knowledge_summary || ''"
+          @view-original="handleViewOriginal"
+        />
+        <KnowledgeDocumentDrawer
+          v-model:visible="docDrawerVisible"
+          :filename="docDrawerFilename"
+        />
       </div>
     </div>
   </div>
@@ -127,7 +135,9 @@ import { nextTick, ref, watch } from 'vue'
 import { ElMessage } from 'element-plus'
 import { Paperclip } from '@element-plus/icons-vue'
 import type { UploadFile } from 'element-plus'
-import CaseContextPanel from '../components/CaseContextPanel.vue'
+import PatientContextPanel from '../components/PatientContextPanel.vue'
+import KnowledgeSummaryPanel from '../components/KnowledgeSummaryPanel.vue'
+import KnowledgeDocumentDrawer from '../components/KnowledgeDocumentDrawer.vue'
 import AgentTimeline from '../components/AgentTimeline.vue'
 import ImageUploader from '../components/ImageUploader.vue'
 import { uploadImage } from '../api'
@@ -142,6 +152,8 @@ const inputMessage = ref('')
 const selectedFile = ref<File | null>(null)
 const uploadProgress = ref(0)
 const chatContainer = ref<HTMLElement | null>(null)
+const docDrawerVisible = ref(false)
+const docDrawerFilename = ref('')
 const currentFile = ref<{
   name: string
   size: number
@@ -165,11 +177,18 @@ watch(
 watch(
   () => caseStore.caseContext,
   (ctx) => {
-    if (ctx?.nodules) {
+    const noduleList = ctx?.nodules
+    if (Array.isArray(noduleList) && noduleList.length > 0) {
       detectionSummary.value = {
-        total_nodules: ctx.nodules.total_nodules || 0,
-        nodules: ctx.nodules.nodules || [],
+        total_nodules: noduleList.length,
+        nodules: noduleList.map((n: any, i: number) => ({
+          index: n.index ?? i + 1,
+          diameter: n.diameter ?? 0,
+          score: n.score ?? 0,
+        })),
       }
+    } else {
+      detectionSummary.value = null
     }
   },
   { deep: true, immediate: true }
@@ -216,10 +235,15 @@ async function handleFileUpload(file: File) {
     currentFile.value = { name: file.name, size: file.size, status: 'done' }
 
     // 从病例上下文更新检测摘要
-    if (caseStore.caseContext?.nodules) {
+    const noduleList = caseStore.caseContext?.nodules
+    if (Array.isArray(noduleList) && noduleList.length > 0) {
       detectionSummary.value = {
-        total_nodules: caseStore.caseContext.nodules.total_nodules || 0,
-        nodules: caseStore.caseContext.nodules.nodules || [],
+        total_nodules: noduleList.length,
+        nodules: noduleList.map((n: any, i: number) => ({
+          index: n.index ?? i + 1,
+          diameter: n.diameter ?? 0,
+          score: n.score ?? 0,
+        })),
       }
     }
 
@@ -238,6 +262,12 @@ async function handleFileUpload(file: File) {
 function clearSelectedFile() {
   selectedFile.value = null
   uploadProgress.value = 0
+}
+
+/** 查看知识库原文档 */
+function handleViewOriginal(filename: string) {
+  docDrawerFilename.value = filename
+  docDrawerVisible.value = true
 }
 
 /** 发送聊天消息 */

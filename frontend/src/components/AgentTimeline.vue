@@ -1,57 +1,42 @@
 <template>
-  <div v-if="events.length" class="agent-timeline">
-    <el-timeline>
-      <el-timeline-item
-        v-for="(event, index) in events"
-        :key="index"
-        :type="timelineType(event.type)"
-        :hollow="event.type === 'final'"
-        placement="top"
-        :timestamp="event.timestamp"
-      >
-        <div :class="['timeline-event', `is-${event.type}`]">
-          <!-- 工具调用：展示调用工具名并附带加载动画 -->
-          <template v-if="event.type === 'tool_call'">
-            <div class="event-content event-tool">
-              <el-icon class="is-loading"><Loading /></el-icon>
-              <span>调用 {{ event.tool_name || '工具' }}…</span>
-            </div>
-          </template>
-
-          <!-- 观察结果：截断至 200 字符并展示省略号 -->
-          <template v-else-if="event.type === 'observation'">
-            <div class="event-content event-observation">
-              <el-text class="observation-text" truncated>
-                {{ truncate(event.content, 200) }}
-              </el-text>
-            </div>
-          </template>
-
-          <!-- 最终结果：展示分析完成指示 -->
-          <template v-else-if="event.type === 'final'">
-            <div class="event-content event-final">
-              <el-icon><CircleCheckFilled /></el-icon>
-              <span>分析完成</span>
-            </div>
-          </template>
-
-          <!-- 状态文本：如"处理中…""完成" -->
-          <template v-else>
-            <div class="event-content event-status">{{ event.content }}</div>
-          </template>
+  <div v-if="visibleEvents.length" class="agent-timeline">
+    <div class="timeline-header" @click="expanded = !expanded">
+      <span class="header-title">Agent 工作过程</span>
+      <span class="header-count">{{ visibleEvents.length }} 步</span>
+      <el-icon class="header-toggle" :class="{ 'is-expanded': expanded }">
+        <ArrowDown />
+      </el-icon>
+    </div>
+    <div v-show="expanded" class="timeline-content">
+      <div class="step-list">
+        <div
+          v-for="(event, index) in visibleEvents"
+          :key="index"
+          :class="['step-item', `is-${event.type}`]"
+        >
+          <div class="step-indicator">
+            <el-icon v-if="event.type === 'tool_call'" class="is-loading"><Loading /></el-icon>
+            <el-icon v-else-if="event.type === 'final'"><CircleCheckFilled /></el-icon>
+            <span v-else class="step-dot" />
+          </div>
+          <div class="step-info">
+            <span class="step-name">{{ event.displayName }}</span>
+            <span v-if="event.type === 'tool_call'" class="step-detail">
+              {{ event.tool_name }}
+            </span>
+          </div>
         </div>
-      </el-timeline-item>
-    </el-timeline>
+      </div>
+    </div>
   </div>
 </template>
 
 <script setup lang="ts">
-import { CircleCheckFilled, Loading } from '@element-plus/icons-vue'
+import { computed, ref } from 'vue'
+import { ArrowDown, CircleCheckFilled, Loading } from '@element-plus/icons-vue'
 
-/** Agent 事件类型 */
 type AgentEventType = 'tool_call' | 'observation' | 'final' | 'status'
 
-/** 单条 Agent 事件 */
 interface AgentEvent {
   type: AgentEventType
   content: string
@@ -59,108 +44,139 @@ interface AgentEvent {
   timestamp?: string
 }
 
-defineProps<{
+const props = defineProps<{
   events: AgentEvent[]
 }>()
 
-/** 根据事件类型映射时间线节点颜色 */
-function timelineType(type: AgentEventType): 'primary' | 'success' | 'info' {
-  switch (type) {
-    case 'tool_call':
-      return 'primary'
-    case 'observation':
-      return 'success'
-    case 'final':
-      return 'success'
-    case 'status':
-      return 'info'
-    default:
-      return 'info'
-  }
-}
+const expanded = ref(false)
 
-/** 截断文本至指定最大长度并追加省略号 */
-function truncate(text: string, maxLength: number): string {
-  if (!text) return ''
-  return text.length > maxLength ? `${text.slice(0, maxLength)}…` : text
-}
+const visibleEvents = computed(() => {
+  const result: Array<AgentEvent & { displayName: string }> = []
+  for (const event of props.events) {
+    if (event.type === 'tool_call') {
+      result.push({
+        ...event,
+        displayName: `调用 ${event.tool_name || '工具'}`,
+      })
+    } else if (event.type === 'final') {
+      result.push({
+        ...event,
+        displayName: '生成最终回答',
+      })
+    }
+  }
+  return result
+})
 </script>
 
 <style scoped>
 .agent-timeline {
   width: 100%;
-  padding: 4px 4px 4px 0;
+  border-top: 1px solid #dfe4e8;
+  background: #f8faf9;
 }
 
-.agent-timeline :deep(.el-timeline-item__timestamp) {
-  color: #8a92a6;
-  font-size: 11px;
-}
-
-.agent-timeline :deep(.el-timeline-item__tail) {
-  border-left-color: #0f3460;
-}
-
-.agent-timeline :deep(.el-timeline-item__node) {
-  background: #0f3460;
-}
-
-.agent-timeline :deep(.el-timeline-item__node--primary) {
-  background: #53c9b1;
-}
-
-.agent-timeline :deep(.el-timeline-item__node--success) {
-  background: #24a06b;
-}
-
-.agent-timeline :deep(.el-timeline-item__node--info) {
-  background: #8a92a6;
-}
-
-.timeline-event {
-  width: 100%;
-}
-
-.event-content {
+.timeline-header {
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: 8px;
+  padding: 8px 12px;
+  cursor: pointer;
+  user-select: none;
   font-size: 12px;
-  line-height: 1.5;
+  color: #65727e;
+  transition: background 0.15s;
 }
 
-/* 工具调用：青蓝色 */
-.event-tool {
-  color: #53c9b1;
+.timeline-header:hover {
+  background: #eef2f0;
+}
+
+.header-title {
   font-weight: 500;
 }
 
-.event-tool .el-icon.is-loading,
-.event-status .el-icon.is-loading {
-  animation: agent-timeline-rotate 1.2s linear infinite;
+.header-count {
+  padding: 1px 6px;
+  background: #e0e6ed;
+  border-radius: 10px;
+  font-size: 11px;
 }
 
-/* 观察结果：绿色，文本为浅色 */
-.event-observation {
-  align-items: flex-start;
+.header-toggle {
+  margin-left: auto;
+  transition: transform 0.2s;
+  font-size: 14px;
 }
 
-.observation-text {
-  display: block;
-  max-width: 100%;
-  color: #e0e6ed;
+.header-toggle.is-expanded {
+  transform: rotate(180deg);
+}
+
+.timeline-content {
+  padding: 0 12px 10px;
+}
+
+.step-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.step-item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 10px;
+  background: #ffffff;
+  border: 1px solid #dfe4e8;
+  border-radius: 4px;
   font-size: 12px;
 }
 
-/* 最终结果：主色高亮 */
-.event-final {
-  color: #53c9b1;
-  font-weight: 600;
+.step-item.is-tool_call {
+  border-color: #b9dfca;
+  background: #e5f5ec;
+  color: #16875b;
 }
 
-/* 状态文本：中性灰 */
-.event-status {
-  color: #8a92a6;
+.step-item.is-final {
+  border-color: #53c9b1;
+  background: #d6f5eb;
+  color: #0e6b4a;
+  font-weight: 500;
+}
+
+.step-indicator {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.step-dot {
+  width: 6px;
+  height: 6px;
+  background: #8a92a6;
+  border-radius: 50%;
+}
+
+.step-info {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.step-name {
+  font-weight: 500;
+}
+
+.step-detail {
+  color: #65727e;
+  font-size: 11px;
+}
+
+.step-item.is-tool_call .step-detail {
+  color: #24a06b;
 }
 
 @keyframes agent-timeline-rotate {

@@ -1,14 +1,14 @@
 """测试会话持久化相关功能：SqliteSaver 持久化、SessionManager 列表与消息查询、多会话独立性。"""
 
-import json
 import os
 import tempfile
 import uuid
+from typing import Any, Dict, Optional
 
 import pytest
 from langchain_core.messages import AIMessage, HumanMessage
 
-from martin.agent.sessions import CONTEXT_MESSAGE_PREFIX, SessionManager
+from martin.agent.sessions import SessionManager
 
 try:
     from langgraph.checkpoint.sqlite import SqliteSaver
@@ -25,13 +25,27 @@ def _make_config(thread_id: str) -> dict:
     return {"configurable": {"thread_id": thread_id, "checkpoint_ns": ""}}
 
 
-def _make_checkpoint(messages: list, ts: str = "2026-07-14T10:00:00Z") -> dict:
-    """构造 SqliteSaver.put 所需的 checkpoint 字典。"""
+def _make_checkpoint(
+    messages: list,
+    ts: str = "2026-07-14T10:00:00Z",
+    case_context: Optional[Dict[str, Any]] = None,
+) -> dict:
+    """构造 SqliteSaver.put 所需的 checkpoint 字典。
+
+    Args:
+        messages: 该 checkpoint 的消息列表。
+        ts: checkpoint 时间戳。
+        case_context: 可选的病例上下文，写入 channel_values.case_context 字段。
+            模拟 LangGraph state_schema 持久化的结构化上下文。
+    """
+    channel_values: Dict[str, Any] = {"messages": list(messages)}
+    if case_context is not None:
+        channel_values["case_context"] = case_context
     return {
         "v": 1,
         "id": str(uuid.uuid4()),
         "ts": ts,
-        "channel_values": {"messages": list(messages)},
+        "channel_values": channel_values,
         "channel_versions": {"__start__": 1},
         "versions_seen": {"__input__": {}},
     }
@@ -186,14 +200,15 @@ class TestSessionManagerListSessions:
             "image_info": {"image_name": "case.nii.gz"},
             "nodules": [{"index": 1, "diameter": 8.2}],
         }
-        content = f"{CONTEXT_MESSAGE_PREFIX}{json.dumps(context, ensure_ascii=False)}\n\n病例摘要"
 
         with SqliteSaver.from_conn_string(temp_db) as saver:
+            # case_context 现直接写入 channel_values（LangGraph state_schema），
+            # 不再通过 CONTEXT_MESSAGE_PREFIX 拼接到 HumanMessage 中。
             saver.put(
                 _make_config("context-session"),
-                _make_checkpoint([HumanMessage(content=content)]),
+                _make_checkpoint([], case_context=context),
                 _META,
-                _VERSIONS,
+                {"messages": 1, "case_context": 1},
             )
             restored = SessionManager(saver).get_case_context("context-session")
 

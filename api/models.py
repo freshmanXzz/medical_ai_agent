@@ -69,6 +69,14 @@ class UploadResponse(BaseModel):
     size: int = Field(description="文件大小（字节）")
 
 
+# ─── 知识库 ────────────────────────────────────────────────
+
+class KnowledgeDocumentResponse(BaseModel):
+    """知识库原文档响应"""
+    filename: str = Field(..., description="文档文件名")
+    content: str = Field(..., description="Markdown 原文内容")
+
+
 # ── 报告生成 ───────────────────────────────────────────────
 
 class ReportRequest(BaseModel):
@@ -114,7 +122,7 @@ class SessionDetailResponse(BaseModel):
 
 class WsStatusMessage(BaseModel):
     """WebSocket 工作状态消息"""
-    type: str = Field(description="消息类型: status/tool_call/observation/final/error")
+    type: str = Field(description="消息类型: status/tool_call/observation/final/error/case_context")
     content: str = Field(description="消息内容")
     tool_name: Optional[str] = None
     timestamp: str = Field(default_factory=lambda: __import__('datetime').datetime.now().isoformat())

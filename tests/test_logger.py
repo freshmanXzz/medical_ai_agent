@@ -1,6 +1,7 @@
 """
 测试日志工具类
 """
+import json
 import os
 import sys
 import logging
@@ -10,6 +11,7 @@ import pytest
 # 添加项目路径
 sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 
+from martin.agent.audit import AuditLogger
 from martin.utils import AppLogger
 
 
@@ -88,10 +90,62 @@ class TestAppLogger:
     def test_get_logger_function(self):
         """测试便捷函数"""
         from martin.utils.logger import get_logger
-        
+
         logger = get_logger("test_function")
         assert isinstance(logger, logging.Logger)
         assert logger.name == "test_function"
+
+
+class TestAuditLogger:
+    """测试 AuditLogger 类的审计日志功能"""
+
+    def test_log_tool_call_with_user_input_and_final_output(self):
+        """测试 log_tool_call 同时传入 user_input 和 final_output 时写入完整审计记录。"""
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            audit_logger = AuditLogger(
+                session_id="test_audit_full",
+                audit_dir=tmp_dir,
+            )
+            audit_logger.log_tool_call(
+                tool_name="retrieve_knowledge",
+                args={
+                    "query": "8mm结节",
+                    "reasoning": "用户问 8mm 结节怎么办",
+                },
+                output_summary="Lung-RADS...",
+                user_input="8mm结节怎么办",
+                final_output="根据 Lung-RADS...",
+            )
+
+            with open(audit_logger.log_file, "r", encoding="utf-8") as f:
+                record = json.loads(f.readline())
+
+            assert record["user_input"] == "8mm结节怎么办"
+            assert record["final_output"] == "根据 Lung-RADS..."
+            assert record["reasoning"] == "用户问 8mm 结节怎么办"
+            assert record["tool_name"] == "retrieve_knowledge"
+            assert "reasoning" not in record["full_args"]
+
+    def test_log_tool_call_backward_compatible(self):
+        """测试 log_tool_call 不传 user_input/final_output 时使用默认空字符串。"""
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            audit_logger = AuditLogger(
+                session_id="test_audit_compat",
+                audit_dir=tmp_dir,
+            )
+            audit_logger.log_tool_call(
+                tool_name="analyze_image",
+                args={"image_path": "x.nii.gz"},
+                output_summary="检测到1个结节",
+            )
+
+            with open(audit_logger.log_file, "r", encoding="utf-8") as f:
+                record = json.loads(f.readline())
+
+            assert record["user_input"] == ""
+            assert record["final_output"] == ""
+            assert record["tool_name"] == "analyze_image"
+            assert record["full_args"] == {"image_path": "x.nii.gz"}
 
 
 if __name__ == "__main__":

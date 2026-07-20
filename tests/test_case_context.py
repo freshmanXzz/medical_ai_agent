@@ -168,7 +168,11 @@ class TestAgentExecutorContext:
 
     @patch("martin.agent.agent.get_chat_model")
     def test_agent_executor_injects_context(self, mock_get_chat_model):
-        """验证 invoke 时会将病例上下文摘要注入到 messages 中。"""
+        """验证 invoke 时将 case_context 通过 state_schema 传递给 LangGraph agent。
+
+        新实现已移除 invoke() 中的 CONTEXT_MESSAGE_PREFIX 消息拼接，
+        改为将 case_context 作为独立字段写入 state，由 _build_prompt 在调用 LLM 前注入。
+        """
         mock_get_chat_model.return_value = MagicMock()
 
         case_context = CaseContext()
@@ -188,12 +192,15 @@ class TestAgentExecutorContext:
         executor.invoke({"input": "请评估风险"})
 
         args, kwargs = mock_agent.invoke.call_args
-        # langgraph agent 接收的第一个位置参数为 {"messages": messages}
-        messages = args[0]["messages"]
-        assert messages[0][0] == "human"
-        assert "【当前病例上下文】" in messages[0][1]
-        assert "65 岁" in messages[0][1]
-        assert "结节 1" in messages[0][1]
+        # state 第一个位置参数包含 messages 与 case_context 两个字段
+        state = args[0]
+        assert state["messages"][0] == ("human", "请评估风险")
+        # case_context 作为独立字段注入（取代旧的消息拼接方式）
+        injected = state["case_context"]
+        assert injected["patient_info"]["age"] == 65
+        assert injected["patient_info"]["gender"] == "男"
+        assert injected["nodules"][0]["diameter"] == 10.0
+        assert injected["nodules"][0]["index"] == 1
 
     @patch("martin.agent.agent.get_chat_model")
     def test_agent_executor_syncs_retrieve_knowledge(self, mock_get_chat_model):

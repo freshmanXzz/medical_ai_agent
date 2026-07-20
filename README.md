@@ -20,6 +20,7 @@ Martin 是一个开源的医学影像 AI Copilot，面向**呼吸科 / 胸外科
 - 📎 **ChatGPT 式附件上传** — 聊天栏直接上传 CT，自动识别医学影像并触发分析
 - ⚡ **WebSocket 实时过程** — AgentTimeline 展示工具调用、观察结果、推理状态
 - 🗄 **MinIO 对象存储** — 医学影像文件统一存储，CaseContext 关联 file_id
+- 📚 **知识库原文查看** — 知识摘要以引用条目展示，点击"查看原文"弹出 Drawer 阅读完整指南文档
 - 📝 **医疗审计溯源** — reasoning 字段 + JSONL 审计日志，全程可追溯
 - 🖥 **GPU 加速推理** — CUDA 加速，支持本地模型部署
 
@@ -69,6 +70,15 @@ flowchart LR
 | 对话记忆 | LangGraph SqliteSaver | 保存完整消息历史，支持重启恢复 |
 | 病例记忆 | CaseContext（结构化） | 患者信息 / 结节数据 / 知识摘要 / 临床备注 |
 
+**右栏面板分离：**
+
+| 面板 | 组件 | 内容 | 定位 |
+|------|------|------|------|
+| 病例上下文 | PatientContextPanel | 患者信息 / 影像信息 / 检测结果 / 风险因素 | Domain-Specific Context Injection（针对病人） |
+| 知识摘要 | KnowledgeSummaryPanel | RAG 检索引用条目（来源 + 摘要 + 查看原文） | 外部参考资料引用（针对知识） |
+
+知识摘要支持"查看原文"：点击引用条目弹出 Drawer 展示知识库 Markdown 原文档（接口：`GET /api/knowledge/document/{filename}`）。
+
 ---
 
 ## 🔄 Workflow
@@ -102,6 +112,7 @@ AgentExecutor.invoke()
 | 对象存储 | MinIO（医学影像文件存储） |
 | LLM | DeepSeek API（兼容 OpenAI 协议） |
 | RAG 向量库 | ChromaDB（本地持久化） |
+| 知识库原文 | `knowledge_base/` 目录（Markdown 格式），`GET /api/knowledge/document/{filename}` |
 | Embedding | BGE-Small-ZH-v1.5（本地部署） |
 | 视觉模型 | MONAI RetinaNet 3D |
 | 深度学习 | PyTorch + CUDA |
@@ -225,9 +236,11 @@ npm run dev
 
 1. **上传 CT 影像** — 在聊天输入框点击 📎 按钮上传 `.nii` / `.nii.gz` / `.dcm` 文件，系统自动上传到 MinIO 并触发影像分析，无需额外输入文字
 2. **Agent 实时过程** — AgentTimeline 组件通过 WebSocket 展示 `analyze_image` → `retrieve_knowledge` → `update_case_context` 等工具调用过程
-3. **病例上下文同步** — 右侧 CaseContextPanel 实时展示患者信息、影像结果、结节数据、风险因素
-4. **多轮追问** — 分析完成后可继续追问"这个结节危险吗？""结合患者年龄重新评估""生成报告"等
-5. **报告生成** — 输入"生成报告"，Agent 读取完整 CaseContext 融合影像结果、患者信息、RAG 知识生成辅助报告
+3. **病例上下文同步** — 右侧 PatientContextPanel 实时展示患者信息、影像结果、结节数据、风险因素（Domain-Specific Context Injection）
+4. **知识摘要引用** — Agent 检索知识库后，右栏 KnowledgeSummaryPanel 以引用条目形式展示（来源文件名 + 摘要片段），不再展示大段纯文本
+5. **查看原文** — 点击引用条目的"查看原文"链接，弹出 Drawer 展示知识库 Markdown 原文档（如 Lung-RADS 指南、诊疗共识等），支持滚动阅读
+6. **多轮追问** — 分析完成后可继续追问"这个结节危险吗？""结合患者年龄重新评估""生成报告"等
+7. **报告生成** — 输入"生成报告"，Agent 读取完整 CaseContext 融合影像结果、患者信息、RAG 知识生成辅助报告
 
 ### 运行效果
 
@@ -242,6 +255,14 @@ npm run dev
 **基于 CaseContext 生成的辅助分析报告：**
 
 ![肺部 CT 智能辅助病例报告](docs/case_report_demo.png)
+
+**知识摘要引用条目（右栏 KnowledgeSummaryPanel）：**
+
+![知识摘要引用条目](docs/knowledge_summary_panel.png)
+
+**查看知识库原文（Drawer 展示 Markdown 原文档）：**
+
+![查看知识库原文](docs/knowledge_document_drawer.png)
 
 **CLI 历史会话查看：**
 

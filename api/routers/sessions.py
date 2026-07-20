@@ -45,14 +45,8 @@ def get_session_detail(thread_id: str):
     if not messages and thread_id != "default":
         raise HTTPException(status_code=404, detail=f"会话 {thread_id} 不存在")
     
-    # 尝试从 AgentExecutor 缓存获取病例上下文
+    # 从 Checkpointer state 读取病例上下文
     case_context = manager.get_case_context(thread_id)
-    try:
-        from martin.agent.agent import AgentExecutor
-        if not case_context and thread_id in AgentExecutor._context_cache:
-            case_context = AgentExecutor._context_cache[thread_id].to_dict()
-    except Exception:
-        pass
     
     return SessionDetailResponse(
         thread_id=thread_id,

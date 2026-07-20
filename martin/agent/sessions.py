@@ -129,26 +129,16 @@ class SessionManager:
         return _display_messages(_checkpoint_messages(item))
 
     def get_case_context(self, thread_id: str) -> Dict[str, Any]:
-        """从最近 checkpoint 中恢复 Agent 注入的结构化病例上下文。"""
+        """从最近 checkpoint 的 state 中直读 case_context 字段。"""
         item = self._latest_checkpoints().get(thread_id)
         if item is None:
             return {}
-
-        for message in reversed(_checkpoint_messages(item)):
-            if not isinstance(message, HumanMessage):
-                continue
-            content = _message_content(message)
-            if not content.startswith(CONTEXT_MESSAGE_PREFIX):
-                continue
-            payload = content[len(CONTEXT_MESSAGE_PREFIX):].split("\n\n", 1)[0]
-            try:
-                import json
-
-                data = json.loads(payload)
-            except (TypeError, ValueError):
-                continue
-            return data if isinstance(data, dict) else {}
-        return {}
+        checkpoint = getattr(item, "checkpoint", {}) or {}
+        channel_values = checkpoint.get("channel_values", {}) or {}
+        case_context = channel_values.get("case_context")
+        if not isinstance(case_context, dict):
+            return {}
+        return case_context
 
 
 class CheckpointerManager:

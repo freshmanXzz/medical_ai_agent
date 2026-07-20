@@ -45,10 +45,11 @@ def health_check():
     return {"status": "ok", "service": "Martin Medical AI Agent"}
 
 
-from api.routers import agent, image, report, sessions
+from api.routers import agent, image, knowledge, report, sessions
 
 app.include_router(agent.router, prefix="/api")
 app.include_router(image.router, prefix="/api")
+app.include_router(knowledge.router, prefix="/api/knowledge", tags=["knowledge"])
 app.include_router(report.router, prefix="/api")
 app.include_router(sessions.router, prefix="/api")
 

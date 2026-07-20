@@ -39,7 +39,20 @@ def test_detection_keeps_session_case_context(monkeypatch, tmp_path):
     image_path = tmp_path / "case.nii.gz"
     image_path.write_bytes(b"test")
     case_context = CaseContext.from_dict({"patient_info": {"age": 62, "gender": "男"}})
-    monkeypatch.setitem(agent_module.AgentExecutor._context_cache, "detection-session", case_context)
+
+    # AgentExecutor._context_cache 已移除，CaseContext 现通过 LangGraph state_schema + Checkpointer 管理。
+    # 此处通过替换 create_agent 返回携带预设 case_context 的桩对象，模拟"从 checkpoint 恢复"的场景。
+    class _StubAgent:
+        """仅暴露 case_context 属性，供 image 路由读取并注入到 ContextVar。"""
+
+        def __init__(self, ctx):
+            self.case_context = ctx
+
+    monkeypatch.setattr(
+        agent_module,
+        "create_agent",
+        lambda **kwargs: _StubAgent(case_context),
+    )
     image_path_obj = image_path
 
     def fake_analyze(image_path, reasoning=""):
@@ -116,3 +129,83 @@ def test_spa_history_route_returns_frontend_when_built():
 
     assert response.status_code == 200
     assert "Martin 医学智能体" in response.text
+
+
+def test_chat_endpoint_writes_audit_log(monkeypatch, tmp_path):
+    """测试 /api/agent/chat 端点在 Agent 执行后正确写入审计日志。"""
+    import martin.agent.agent as agent_module
+    import martin.agent.audit as audit_module
+    from langchain_core.agents import AgentAction
+
+    # 用列表捕获 StubAuditLogger 实例，便于断言其属性
+    instances = []
+
+    class _StubAuditLogger:
+        """记录 log_tool_call 调用参数的桩对象。"""
+
+        def __init__(self, session_id=None, audit_dir=None):
+            self.session_id = session_id
+            self.log_file = str(tmp_path / f"{session_id}_test.jsonl")
+            self.logged_calls = []
+
+        def log_tool_call(
+            self,
+            tool_name,
+            args,
+            output_summary,
+            user_input="",
+            final_output="",
+        ):
+            self.logged_calls.append({
+                "tool_name": tool_name,
+                "args": args,
+                "output_summary": output_summary,
+                "user_input": user_input,
+                "final_output": final_output,
+            })
+
+        def log_agent_error(self, error_msg):
+            pass
+
+    def _make_stub_logger(session_id=None, audit_dir=None):
+        inst = _StubAuditLogger(session_id=session_id, audit_dir=audit_dir)
+        instances.append(inst)
+        return inst
+
+    monkeypatch.setattr(audit_module, "AuditLogger", _make_stub_logger)
+
+    class FakeAgent:
+        """返回带一个 intermediate_step 的 Agent 桩。"""
+
+        case_context = None
+
+        def invoke(self, inputs):
+            action = AgentAction(
+                tool="retrieve_knowledge",
+                tool_input={"query": "8mm结节", "reasoning": "知识问题"},
+                log="",
+            )
+            return {
+                "output": "根据 Lung-RADS...",
+                "intermediate_steps": [(action, "Lung-RADS v2022...")],
+            }
+
+    monkeypatch.setattr(agent_module, "create_agent", lambda **_: FakeAgent())
+
+    with TestClient(app) as client:
+        response = client.post(
+            "/api/agent/chat",
+            json={
+                "session_id": "audit-test-session",
+                "user_message": "8mm结节怎么办",
+            },
+        )
+
+    assert response.status_code == 200
+    assert len(instances) == 1
+    assert instances[0].session_id == "audit-test-session"
+    assert len(instances[0].logged_calls) == 1
+    call = instances[0].logged_calls[0]
+    assert call["tool_name"] == "retrieve_knowledge"
+    assert call["user_input"] == "8mm结节怎么办"
+    assert call["final_output"] == "根据 Lung-RADS..."

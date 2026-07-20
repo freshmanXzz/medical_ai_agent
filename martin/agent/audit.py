@@ -47,6 +47,8 @@ class AuditLogger:
         tool_name: str,
         args: Dict[str, Any],
         output_summary: str,
+        user_input: str = "",
+        final_output: str = "",
     ) -> None:
         """记录一次工具调用。
 
@@ -56,6 +58,8 @@ class AuditLogger:
             tool_name: 工具名称。
             args: 工具调用的完整参数。
             output_summary: 工具输出的摘要（前 500 字符）。
+            user_input: 用户原始输入，用于审计溯源（前 500 字符）。
+            final_output: Agent 最终回答摘要，用于审计溯源（前 500 字符）。
         """
         reasoning = args.pop("reasoning", "") if isinstance(args, dict) else ""
         record = {
@@ -65,6 +69,8 @@ class AuditLogger:
             "full_args": args,  # 不包含 reasoning（已 pop）
             "reasoning": reasoning,
             "output_summary": output_summary[:500],
+            "user_input": user_input[:500],  # 用户原始输入（截断到 500 字符）
+            "final_output": final_output[:500],  # Agent 最终回答摘要（截断到 500 字符）
         }
 
         with open(self.log_file, "a", encoding="utf-8") as f:

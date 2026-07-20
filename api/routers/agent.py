@@ -60,14 +60,17 @@ def _process_attachment(agent, attachment: AttachmentInfo) -> str:
 def agent_chat(request: ChatRequest):
     """Agent 对话接口，调用现有 AgentExecutor 进行推理。"""
     from martin.agent.agent import create_agent
+    from martin.agent.audit import AuditLogger
     from martin.agent.sessions import get_default_checkpointer
+
+    audit_logger = AuditLogger(session_id=request.session_id)
 
     try:
         checkpointer = get_default_checkpointer()
         agent = create_agent(
             thread_id=request.session_id,
             checkpointer=checkpointer,
-            verbose=False,
+            verbose=True,
         )
     except ValueError as exc:
         logger.warning("Agent 尚未完成配置: %s", exc)
@@ -77,11 +80,9 @@ def agent_chat(request: ChatRequest):
         ) from exc
 
     if request.case_context:
-        from martin.agent.agent import AgentExecutor
         from martin.agent.case_context import CaseContext
 
         restored_context = CaseContext.from_dict(request.case_context)
-        AgentExecutor._context_cache[request.session_id] = restored_context
         agent.case_context = restored_context
 
     # 处理附件：注入影像信息并生成引导消息
@@ -95,9 +96,24 @@ def agent_chat(request: ChatRequest):
         else:
             user_message = f"{guidance}{user_message}"
 
-    result = agent.invoke({"input": user_message})
+    try:
+        result = agent.invoke({"input": user_message})
+    except Exception as e:
+        audit_logger.log_agent_error(str(e))
+        raise HTTPException(status_code=502, detail="Agent 执行失败，请稍后重试。") from e
     if str(result.get("output", "")).startswith("错误: Agent 执行失败"):
         raise HTTPException(status_code=502, detail="Agent 执行失败，请稍后重试。")
+
+    # 审计日志：记录工具调用
+    for action, output in result.get("intermediate_steps", []):
+        if isinstance(action, AgentAction):
+            audit_logger.log_tool_call(
+                tool_name=action.tool,
+                args=action.tool_input,
+                output_summary=str(output)[:500],
+                user_input=user_message,
+                final_output=result.get("output", ""),
+            )
 
     # 解析 intermediate_steps 为 tool_calls
     tool_calls = []
@@ -138,6 +154,8 @@ async def agent_websocket(websocket: WebSocket, session_id: str):
     - error: 错误信息
     """
     await websocket.accept()
+    from martin.agent.audit import AuditLogger
+    audit_logger = AuditLogger(session_id=session_id)
 
     try:
         await websocket.send_json(WsStatusMessage(
@@ -174,7 +192,7 @@ async def agent_websocket(websocket: WebSocket, session_id: str):
                 agent = create_agent(
                     thread_id=session_id,
                     checkpointer=checkpointer,
-                    verbose=False,
+                    verbose=True,
                 )
 
                 # 处理附件：注入影像信息并生成引导消息
@@ -199,6 +217,18 @@ async def agent_websocket(websocket: WebSocket, session_id: str):
 
                 result = await asyncio.to_thread(agent.invoke, {"input": final_input})
 
+                # 审计日志：记录工具调用
+                final_output = result.get("output", "")
+                for action, output in result.get("intermediate_steps", []):
+                    if isinstance(action, AgentAction):
+                        audit_logger.log_tool_call(
+                            tool_name=action.tool,
+                            args=action.tool_input,
+                            output_summary=str(output)[:500],
+                            user_input=final_input,
+                            final_output=final_output,
+                        )
+
                 # 推送工具调用状态
                 for action, output in result.get("intermediate_steps", []):
                     if isinstance(action, AgentAction):
@@ -217,22 +247,22 @@ async def agent_websocket(websocket: WebSocket, session_id: str):
                             tool_name=action.tool,
                         ).model_dump())
 
+                # 推送病例上下文更新
+                try:
+                    ctx = agent.case_context.to_dict()
+                    await websocket.send_json(WsStatusMessage(
+                        type="case_context",
+                        content=json.dumps({"case_context": ctx}, ensure_ascii=False),
+                    ).model_dump())
+                except Exception:
+                    pass
+
                 # 推送最终回答
                 final_output = result.get("output", "")
                 await websocket.send_json(WsStatusMessage(
                     type="final",
                     content=final_output,
                 ).model_dump())
-
-                # 推送病例上下文更新
-                try:
-                    ctx = agent.case_context.to_dict()
-                    await websocket.send_json(WsStatusMessage(
-                        type="status",
-                        content=json.dumps({"case_context": ctx}, ensure_ascii=False),
-                    ).model_dump())
-                except Exception:
-                    pass
 
             except json.JSONDecodeError:
                 await websocket.send_json(WsStatusMessage(
@@ -241,6 +271,7 @@ async def agent_websocket(websocket: WebSocket, session_id: str):
                 ).model_dump())
             except Exception as e:
                 logger.error("Agent WebSocket 处理失败: %s", e, exc_info=True)
+                audit_logger.log_agent_error(str(e))
                 await websocket.send_json(WsStatusMessage(
                     type="error",
                     content="Agent 执行失败，请稍后重试。",

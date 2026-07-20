@@ -80,7 +80,7 @@ class LangChainConfig:
     @property
     def deepseek_model(self) -> str:
         """DeepSeek 模型名称。"""
-        return os.environ.get("DEEPSEEK_MODEL", "deepseek-v4-flash")
+        return os.environ.get("DEEPSEEK_MODEL", "deepseek-v4-pro")
 
     # ─── MinIO OSS ───────────────────────────────────────────
     @property
@@ -129,32 +129,6 @@ class LangChainConfig:
     def similarity_threshold(self) -> float:
         """检索相似度阈值（低于此值的文档被过滤）。"""
         return float(os.environ.get("RETRIEVER_THRESHOLD", "0.7"))
-
-    # ─── MinIO 对象存储 ─────────────────────────────────────
-    @property
-    def minio_endpoint(self) -> str:
-        """MinIO 服务地址（host:port）。"""
-        return os.environ.get("MINIO_ENDPOINT", "localhost:9000")
-
-    @property
-    def minio_access_key(self) -> str:
-        """MinIO 访问密钥。"""
-        return os.environ.get("MINIO_ACCESS_KEY", "minioadmin")
-
-    @property
-    def minio_secret_key(self) -> str:
-        """MinIO 秘密密钥。"""
-        return os.environ.get("MINIO_SECRET_KEY", "minioadmin")
-
-    @property
-    def minio_bucket_name(self) -> str:
-        """MinIO 默认 bucket 名称。"""
-        return os.environ.get("MINIO_BUCKET_NAME", "martin-medical")
-
-    @property
-    def minio_secure(self) -> bool:
-        """是否启用 HTTPS 安全连接。"""
-        return os.environ.get("MINIO_SECURE", "False").lower() == "true"
 
 
 # 全局单例
