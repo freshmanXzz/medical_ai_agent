@@ -154,11 +154,14 @@ export DEEPSEEK_API_KEY="your-api-key"
 export DEEPSEEK_BASE_URL="https://api.deepseek.com/v1"
 ```
 
-### 固定测试环境（Windows）
+### 运行测试
 
-本项目的 Python 测试统一使用本机已有的 `monai_learning` Conda 环境，解释器为 `E:\conda\envs\monai_learning\python.exe`。不要混用系统 Python 或 `.venv`；统一通过测试脚本执行：
+请在安装了项目依赖的 Python / Conda 环境中执行测试。仓库提供 PowerShell 包装脚本；若本机解释器不在脚本默认位置，先通过 `MARTIN_TEST_PYTHON` 指定它：
 
 ```powershell
+# 可选：指向当前机器中已安装依赖的 Python 解释器
+$env:MARTIN_TEST_PYTHON = "<absolute-path-to-python.exe>"
+
 # 运行全部测试
 .\scripts\run_tests.ps1
 
@@ -166,7 +169,7 @@ export DEEPSEEK_BASE_URL="https://api.deepseek.com/v1"
 .\scripts\run_tests.ps1 tests\test_web_api.py -q
 ```
 
-如果另一台电脑的环境路径不同，可以临时设置 `MARTIN_TEST_PYTHON` 指向其 `python.exe`。
+Linux / macOS 可直接在已激活环境中执行 `python -m pytest tests`。维护者的本机路径不属于项目安装前提。
 
 ### 下载模型
 
@@ -228,23 +231,23 @@ npm run build
 cd ..
 ```
 
-然后使用 `monai_learning` 环境启动 Martin Web 服务：
+然后在上一步创建并安装依赖的环境中启动 Martin Web 服务：
 
-```powershell
-# 已配置 Conda 时
-conda activate monai_learning
+```bash
+# 使用安装步骤中创建的 Conda 环境
+conda activate martin
 python -m martin web
 
-# 或直接使用项目固定测试/运行解释器
-E:\conda\envs\monai_learning\python.exe -m martin web
+# 或在任意已激活的 Python 虚拟环境中直接执行
+python -m martin web
 ```
 
 浏览器访问 `http://127.0.0.1:8000`。
 
-需要使用 CT 文件上传或 OSS 影像分析时，先在独立终端启动本机 MinIO：
+需要使用 CT 文件上传或 OSS 影像分析时，先安装 MinIO 并在独立终端启动本机服务：
 
-```powershell
-E:\moani\minio\minio.exe server E:\moani\minio\data --console-address ":9001"
+```bash
+minio server ./data/minio --console-address ":9001"
 ```
 
 MinIO API 地址为 `http://127.0.0.1:9000`，管理控制台地址为 `http://127.0.0.1:9001`。
@@ -252,8 +255,8 @@ MinIO API 地址为 `http://127.0.0.1:9000`，管理控制台地址为 `http://1
 **开发模式**（前后端分离热重载）：
 
 ```bash
-# 终端1：后端（monai_learning 环境）
-conda activate monai_learning
+# 终端1：后端（已安装项目依赖的环境）
+conda activate martin
 python -m martin web --reload
 # 或：python -m uvicorn api.main:app --host 127.0.0.1 --port 8000 --reload
 
