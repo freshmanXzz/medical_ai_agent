@@ -14,12 +14,12 @@ class FakeCheckpointer:
         return iter(self.items)
 
 
-def checkpoint(thread_id, timestamp, messages):
+def checkpoint(thread_id, timestamp, messages, case_context=None):
     return SimpleNamespace(
         config={"configurable": {"thread_id": thread_id}},
         checkpoint={
             "ts": timestamp,
-            "channel_values": {"messages": messages},
+            "channel_values": {"messages": messages, "case_context": case_context or {}},
         },
     )
 
@@ -74,6 +74,23 @@ def test_get_messages_filters_case_context_and_tool_messages():
         ("User", "分析这张 CT"),
         ("Martin", "检测到 3 个结节"),
     ]
+
+
+def test_list_sessions_uses_ct_filename_when_detection_has_no_chat_messages():
+    items = [
+        checkpoint(
+            "image-only-session",
+            "2026-07-14T12:00:00Z",
+            [],
+            {"image_info": {"filename": "case.nii.gz"}, "nodules": [{"index": 1}]},
+        )
+    ]
+
+    summaries = SessionManager(FakeCheckpointer(items)).list_sessions()
+
+    assert summaries[0].thread_id == "image-only-session"
+    assert summaries[0].title == "case.nii.gz"
+    assert SessionManager(FakeCheckpointer(items)).get_case_context("image-only-session")["nodules"][0]["index"] == 1
 
 
 def test_sqlite_checkpoint_survives_reopen(tmp_path):

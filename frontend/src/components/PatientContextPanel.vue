@@ -51,38 +51,6 @@
         </div>
       </el-card>
 
-      <!-- 检测结果 -->
-      <el-card v-if="hasNodules" class="context-card" shadow="never">
-        <template #header>
-          <div class="card-header">
-            <el-icon><Aim /></el-icon>
-            <span>检测结果</span>
-            <el-tag size="small" type="success" effect="dark" class="header-tag">
-              {{ nodules.length }} 个结节
-            </el-tag>
-          </div>
-        </template>
-        <div class="nodule-list">
-          <div v-for="nodule in nodules" :key="nodule.index" class="nodule-item">
-            <div class="nodule-head">
-              <strong>结节 {{ nodule.index }}</strong>
-              <el-tag size="small" effect="dark" type="warning">
-                {{ formatDiameter(nodule.diameter) }}
-              </el-tag>
-            </div>
-            <div class="nodule-meta">
-              <span class="meta-item">置信度：{{ formatScore(nodule.score) }}</span>
-              <span v-if="nodule.center" class="meta-item">
-                中心：{{ formatPoint(nodule.center) }}
-              </span>
-            </div>
-            <div v-if="nodule.dimensions" class="nodule-dim">
-              尺寸：{{ formatPoint(nodule.dimensions) }}
-            </div>
-          </div>
-        </div>
-      </el-card>
-
       <!-- 风险因素 -->
       <el-card v-if="riskFactors" class="context-card" shadow="never">
         <template #header>
@@ -99,16 +67,7 @@
 
 <script setup lang="ts">
 import { computed } from 'vue'
-import { Aim, Picture, User, Warning } from '@element-plus/icons-vue'
-
-/** 单个结节信息 */
-interface NoduleInfo {
-  index: number
-  diameter: number
-  score: number
-  center?: Record<string, number>
-  dimensions?: Record<string, number>
-}
+import { Picture, User, Warning } from '@element-plus/icons-vue'
 
 /** 患者信息 */
 interface PatientInfo {
@@ -149,14 +108,6 @@ const imageInfo = computed<ImageInfo | null>(() => {
   return null
 })
 
-// 结节列表
-const nodules = computed<NoduleInfo[]>(() => {
-  const list = props.caseContext?.nodules
-  return Array.isArray(list) ? list : []
-})
-
-const hasNodules = computed(() => nodules.value.length > 0)
-
 // 风险因素：支持字符串或对象结构
 const riskFactors = computed<Record<string, unknown> | string | null>(() => {
   const risk = props.caseContext?.risk_factors
@@ -171,35 +122,14 @@ const riskFactors = computed<Record<string, unknown> | string | null>(() => {
   return null
 })
 
-// 是否存在任何可展示的上下文（仅前 4 项，不含知识摘要）
+// 是否存在任何可展示的病例上下文（结节列表由工作区“AI 发现”统一承载）
 const hasContext = computed(() => {
   return Boolean(
     patientInfo.value ||
       imageInfo.value ||
-      hasNodules.value ||
       riskFactors.value
   )
 })
-
-/** 格式化结节直径 */
-function formatDiameter(diameter: number): string {
-  if (typeof diameter !== 'number' || Number.isNaN(diameter)) return '--'
-  return `${diameter.toFixed(2)} mm`
-}
-
-/** 格式化置信度分数为百分比 */
-function formatScore(score: number): string {
-  if (typeof score !== 'number' || Number.isNaN(score)) return '--'
-  return `${(score * 100).toFixed(1)}%`
-}
-
-/** 格式化坐标/尺寸点对象为可读字符串 */
-function formatPoint(point: Record<string, number>): string {
-  const entries = Object.entries(point)
-    .filter(([, value]) => typeof value === 'number')
-    .map(([key, value]) => `${key}: ${value}`)
-  return entries.length ? entries.join('，') : '--'
-}
 
 /** 格式化风险因素：对象结构拼接为 key: value 形式 */
 function formatRiskFactors(risk: Record<string, unknown> | string): string {
@@ -220,15 +150,15 @@ function formatRiskFactors(risk: Record<string, unknown> | string): string {
 }
 
 .context-card {
-  background: #16213e;
-  border: 1px solid #0f3460;
-  border-radius: 8px;
+  background: #ffffff;
+  border: 1px solid #d7e0e6;
+  border-radius: 10px;
 }
 
 .context-card :deep(.el-card__header) {
   padding: 10px 12px;
-  background: #1a1a2e;
-  border-bottom: 1px solid #0f3460;
+  background: #f7faf9;
+  border-bottom: 1px solid #e2e9ed;
 }
 
 .context-card :deep(.el-card__body) {
@@ -239,17 +169,13 @@ function formatRiskFactors(risk: Record<string, unknown> | string): string {
   display: flex;
   align-items: center;
   gap: 6px;
-  color: #53c9b1;
+  color: #2c7054;
   font-size: 13px;
   font-weight: 600;
 }
 
 .card-header .el-icon {
   font-size: 15px;
-}
-
-.header-tag {
-  margin-left: auto;
 }
 
 .info-list {
@@ -273,11 +199,11 @@ function formatRiskFactors(risk: Record<string, unknown> | string): string {
 }
 
 .info-label {
-  color: #8a92a6;
+  color: #718494;
 }
 
 .info-value {
-  color: #e0e6ed;
+  color: #314858;
   font-weight: 500;
   text-align: right;
   overflow-wrap: anywhere;
@@ -289,45 +215,8 @@ function formatRiskFactors(risk: Record<string, unknown> | string): string {
   font-size: 12px;
 }
 
-.nodule-list {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-}
-
-.nodule-item {
-  padding: 8px;
-  background: #1a1a2e;
-  border: 1px solid #0f3460;
-  border-radius: 6px;
-}
-
-.nodule-head {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 8px;
-  color: #e0e6ed;
-  font-size: 13px;
-}
-
-.nodule-meta {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 10px;
-  margin-top: 4px;
-  color: #8a92a6;
-  font-size: 11px;
-}
-
-.nodule-dim {
-  margin-top: 4px;
-  color: #8a92a6;
-  font-size: 11px;
-}
-
 .risk-text {
-  color: #e0e6ed;
+  color: #314858;
   font-size: 12px;
   line-height: 1.6;
   overflow-wrap: anywhere;
@@ -335,6 +224,6 @@ function formatRiskFactors(risk: Record<string, unknown> | string): string {
 }
 
 .case-context-panel :deep(.el-empty__description) {
-  color: #8a92a6;
+  color: #718494;
 }
 </style>

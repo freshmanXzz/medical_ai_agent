@@ -90,20 +90,22 @@ def test_config_env_override(monkeypatch):
 
 
 def test_load_knowledge_base():
-    """加载知识库文档，验证文档结构和元数据"""
+    """配置中的六份内置资料都必须成功加载。"""
     from martin.rag.document_loader import load_knowledge_base
 
-    docs = load_knowledge_base()
-    if docs:
-        assert len(docs) > 0
-        assert hasattr(docs[0], "page_content")
-        assert hasattr(docs[0], "metadata")
-        # 验证 metadata 包含 source 和 category 字段
-        assert "source" in docs[0].metadata
-        assert "category" in docs[0].metadata
-    else:
-        # 若知识库配置文件或文档文件不存在，跳过而非失败
-        pytest.skip("知识库文档为空，跳过加载测试")
+    docs = load_knowledge_base(strict=True)
+    expected_sources = {
+        "01_肺叶分段解剖图示.md",
+        "02_ICD11_Neoplasms_Lung.csv",
+        "03_R91_Radiology_Abnormalities.csv",
+        "04_CT肺结节诊断专家共识2023.md",
+        "05_肺结节诊疗指南2024.md",
+        "Lung-RADS_v2022.md",
+    }
+
+    assert docs
+    assert {document.metadata["source"] for document in docs} == expected_sources
+    assert all("category" in document.metadata for document in docs)
 
 
 # ============================================================================
@@ -253,7 +255,7 @@ def test_chat_model():
 
     try:
         model = get_chat_model()
-        expected_model = os.environ.get("DEEPSEEK_MODEL", "deepseek-v4-flash")
+        expected_model = os.environ.get("DEEPSEEK_MODEL", "deepseek-v4-pro")
         assert model.model_name == expected_model
     finally:
         # 恢复原环境变量

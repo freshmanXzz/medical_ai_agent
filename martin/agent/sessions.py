@@ -69,6 +69,22 @@ def _title_from_messages(messages: Iterable[Any]) -> str:
     return "未命名会话"
 
 
+def _title_from_checkpoint(item: Any) -> str:
+    """优先使用首条用户消息；纯影像检测会话则显示上传文件名。"""
+    title = _title_from_messages(_checkpoint_messages(item))
+    if title != "未命名会话":
+        return title
+    checkpoint = getattr(item, "checkpoint", {}) or {}
+    context = (checkpoint.get("channel_values", {}) or {}).get("case_context", {}) or {}
+    image_info = context.get("image_info", {}) if isinstance(context, dict) else {}
+    filename = (
+        image_info.get("filename") or image_info.get("image_name", "")
+        if isinstance(image_info, dict)
+        else ""
+    )
+    return filename or title
+
+
 def _checkpoint_messages(item: Any) -> List[Any]:
     checkpoint = getattr(item, "checkpoint", {}) or {}
     channel_values = checkpoint.get("channel_values", {})
@@ -115,7 +131,7 @@ class SessionManager:
             summaries.append(
                 SessionSummary(
                     thread_id=thread_id,
-                    title=_title_from_messages(_checkpoint_messages(item)),
+                    title=_title_from_checkpoint(item),
                     created_at=min(timestamps) if timestamps else "",
                     updated_at=max(timestamps) if timestamps else "",
                 )

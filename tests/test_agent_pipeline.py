@@ -19,17 +19,17 @@ class TestAgentInitialization:
         assert len(agent.tools) == 6
         assert agent.handle_parsing_errors is True
 
-    def test_agent_system_prompt_contains_reasoning(self):
-        """测试 System Prompt 包含 reasoning 约束。"""
+    def test_agent_system_prompt_contains_clinical_safety_and_source_policy(self):
+        """系统提示词应约束工具审计、临床安全和知识来源。"""
         from martin.agent.agent import SYSTEM_PROMPT
 
         assert "reasoning" in SYSTEM_PROMPT
-        assert "推理" in SYSTEM_PROMPT
-        assert "审计溯源" in SYSTEM_PROMPT
-        # 面向临床医生的 Copilot 定位
         assert "AI Medical Imaging Copilot" in SYSTEM_PROMPT
-        assert "中文和英文" in SYSTEM_PROMPT
-        assert "你不是现实中的执业医生" in SYSTEM_PROMPT
+        assert "不是执业医生" in SYSTEM_PROMPT
+        assert "不得虚构" in SYSTEM_PROMPT
+        assert "来源可追溯" in SYSTEM_PROMPT
+        assert "retrieve_knowledge(query=...)" in SYSTEM_PROMPT
+        assert "不得补充工具结果未出现的指南" in SYSTEM_PROMPT
 
     def test_report_prompt_does_not_invent_missing_imaging_features(self):
         from martin.llm.chain import SYS_PROMPT_DETAILED

@@ -17,6 +17,65 @@ def test_health_endpoint():
     assert response.json()["status"] == "ok"
 
 
+def test_knowledge_search_returns_raw_vector_results(monkeypatch):
+    from martin.rag.knowledge_manager import KnowledgeManager
+
+    monkeypatch.setattr(
+        KnowledgeManager,
+        "search_raw_vectors",
+        lambda self, query, top_k: [
+            {
+                "rank": 1,
+                "score": 0.88,
+                "source": "guide.md",
+                "source_type": "builtin",
+                "document_id": "builtin:guide.md",
+                "content": "肺结节随访建议",
+            }
+        ],
+    )
+
+    with TestClient(app) as client:
+        response = client.post("/api/knowledge/search", json={"query": "肺结节随访"})
+
+    assert response.status_code == 200
+    assert response.json() == {
+        "query": "肺结节随访",
+        "total": 1,
+        "results": [{
+            "rank": 1,
+            "score": 0.88,
+            "source": "guide.md",
+            "source_type": "builtin",
+            "document_id": "builtin:guide.md",
+            "content": "肺结节随访建议",
+        }],
+    }
+
+
+def test_knowledge_search_rejects_blank_query():
+    with TestClient(app) as client:
+        response = client.post("/api/knowledge/search", json={"query": "   "})
+
+    assert response.status_code == 400
+    assert response.json()["detail"] == "检索文本不能为空"
+
+
+def test_knowledge_search_reports_unavailable_vector_store(monkeypatch):
+    from martin.rag.knowledge_manager import KnowledgeManager, VectorStoreUnavailableError
+
+    def raise_unavailable(self, query, top_k):
+        raise VectorStoreUnavailableError("向量库尚未初始化，请先重建知识库向量")
+
+    monkeypatch.setattr(KnowledgeManager, "search_raw_vectors", raise_unavailable)
+
+    with TestClient(app) as client:
+        response = client.post("/api/knowledge/search", json={"query": "肺结节"})
+
+    assert response.status_code == 503
+    assert "尚未初始化" in response.json()["detail"]
+
+
 def test_missing_image_returns_404_before_model_load():
     with TestClient(app) as client:
         response = client.post(
@@ -47,11 +106,16 @@ def test_detection_keeps_session_case_context(monkeypatch, tmp_path):
 
         def __init__(self, ctx):
             self.case_context = ctx
+            self.saved = False
 
+        def save_case_context(self):
+            self.saved = True
+
+    stub_agent = _StubAgent(case_context)
     monkeypatch.setattr(
         agent_module,
         "create_agent",
-        lambda **kwargs: _StubAgent(case_context),
+        lambda **kwargs: stub_agent,
     )
     image_path_obj = image_path
 
@@ -90,6 +154,7 @@ def test_detection_keeps_session_case_context(monkeypatch, tmp_path):
     assert payload["total_nodules"] == 1
     assert payload["case_context"]["patient_info"]["age"] == 62
     assert len(payload["case_context"]["nodules"]) == 1
+    assert stub_agent.saved is True
 
 
 def test_chat_endpoint_calls_agent_and_returns_context(monkeypatch):

@@ -4,7 +4,7 @@
     <el-upload
       :auto-upload="false"
       :show-file-list="false"
-      accept=".nii,.nii.gz,.dcm"
+      accept=".nii,.nii.gz"
       :on-change="handleFileChange"
       drag
       class="uploader-zone"
@@ -12,7 +12,7 @@
       <el-icon class="uploader-icon"><UploadFilled /></el-icon>
       <div class="uploader-text">拖拽 CT 影像文件到此处，或点击上传</div>
       <template #tip>
-        <div class="uploader-tip">支持 .nii / .nii.gz / .dcm 格式</div>
+        <div class="uploader-tip">支持 .nii / .nii.gz 格式</div>
       </template>
     </el-upload>
 
@@ -55,25 +55,20 @@
         <el-icon><CircleCheckFilled /></el-icon>
         <span>分析完成</span>
       </div>
+
+      <div v-if="currentFile.status === 'error'" class="status-line is-error">
+        <el-icon><CircleCloseFilled /></el-icon>
+        <span>分析失败，请重新上传或查看错误提示</span>
+      </div>
     </div>
 
-    <!-- 检测结果 -->
+    <!-- 检测摘要：逐项复核统一在工作区的“AI 发现”列表中完成，避免重复罗列结节。 -->
     <div v-if="detectionResult && detectionResult.total_nodules > 0" class="detection-result">
       <div class="result-summary">
         <el-icon><Aim /></el-icon>
         <span>检测到 <strong>{{ detectionResult.total_nodules }}</strong> 个结节</span>
       </div>
-      <div class="nodule-list">
-        <div
-          v-for="nodule in detectionResult.nodules"
-          :key="nodule.index"
-          class="nodule-row"
-        >
-          <span class="nodule-index">结节 {{ nodule.index }}</span>
-          <span class="nodule-diameter">{{ formatDiameter(nodule.diameter) }}</span>
-          <span class="nodule-score">{{ formatScore(nodule.score) }}</span>
-        </div>
-      </div>
+      <p class="result-hint">在下方“AI 发现”中选择结节进行逐项复核。</p>
     </div>
   </div>
 </template>
@@ -84,6 +79,7 @@ import {
   Aim,
   CircleCheck,
   CircleCheckFilled,
+  CircleCloseFilled,
   Document,
   Loading,
   UploadFilled,
@@ -91,7 +87,7 @@ import {
 import type { UploadFile } from 'element-plus'
 
 /** 文件处理状态 */
-type FileStatus = 'idle' | 'uploading' | 'uploaded' | 'analyzing' | 'done'
+type FileStatus = 'idle' | 'uploading' | 'uploaded' | 'analyzing' | 'done' | 'error'
 
 /** 当前文件信息 */
 interface CurrentFile {
@@ -100,17 +96,9 @@ interface CurrentFile {
   status: FileStatus
 }
 
-/** 单个结节检测结果 */
-interface NoduleResult {
-  index: number
-  diameter: number
-  score: number
-}
-
 /** 检测结果集合 */
 interface DetectionResult {
   total_nodules: number
-  nodules: NoduleResult[]
 }
 
 const props = defineProps<{
@@ -133,22 +121,26 @@ const statusText = computed(() => {
       return '已上传'
     case 'analyzing':
       return '分析中'
-    case 'done':
-      return '完成'
+      case 'done':
+        return '完成'
+      case 'error':
+        return '失败'
     default:
       return '待处理'
   }
 })
 
 // 状态标签颜色：上传中为主色，完成类为成功，分析中为警告
-const statusTagType = computed<'info' | 'primary' | 'success' | 'warning'>(() => {
+const statusTagType = computed<'info' | 'primary' | 'success' | 'warning' | 'danger'>(() => {
   if (!props.currentFile) return 'info'
   switch (props.currentFile.status) {
     case 'uploading':
       return 'primary'
-    case 'uploaded':
-    case 'done':
-      return 'success'
+      case 'uploaded':
+      case 'done':
+        return 'success'
+      case 'error':
+        return 'danger'
     case 'analyzing':
       return 'warning'
     default:
@@ -171,17 +163,6 @@ function formatFileSize(size: number): string {
   return `${(size / (1024 * 1024)).toFixed(2)} MB`
 }
 
-/** 格式化结节直径 */
-function formatDiameter(diameter: number): string {
-  if (typeof diameter !== 'number' || Number.isNaN(diameter)) return '--'
-  return `${diameter.toFixed(2)} mm`
-}
-
-/** 格式化置信度分数为百分比 */
-function formatScore(score: number): string {
-  if (typeof score !== 'number' || Number.isNaN(score)) return '--'
-  return `${(score * 100).toFixed(1)}%`
-}
 </script>
 
 <style scoped>
@@ -209,40 +190,41 @@ function formatScore(score: number): string {
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  padding: 20px 12px;
-  background: #16213e;
-  border: 1px dashed #0f3460;
+  padding: 18px 12px;
+  background: #f7faf9;
+  border: 1px dashed #a9c4b5;
   border-radius: 8px;
   transition: border-color 0.2s ease;
 }
 
 .image-uploader :deep(.el-upload-dragger:hover) {
-  border-color: #53c9b1;
+  border-color: #25805a;
+  background: #eff7f2;
 }
 
 .uploader-icon {
   font-size: 32px;
-  color: #53c9b1;
+  color: #25805a;
 }
 
 .uploader-text {
   margin-top: 8px;
-  color: #e0e6ed;
+  color: #314858;
   font-size: 12px;
   text-align: center;
 }
 
 .uploader-tip {
   margin-top: 6px;
-  color: #8a92a6;
+  color: #718494;
   font-size: 11px;
   text-align: center;
 }
 
 .file-info {
   padding: 10px;
-  background: #16213e;
-  border: 1px solid #0f3460;
+  background: #f7faf9;
+  border: 1px solid #d8e4de;
   border-radius: 8px;
 }
 
@@ -253,7 +235,7 @@ function formatScore(score: number): string {
 }
 
 .file-icon {
-  color: #53c9b1;
+  color: #25805a;
   font-size: 18px;
   flex-shrink: 0;
 }
@@ -267,7 +249,7 @@ function formatScore(score: number): string {
 }
 
 .file-name {
-  color: #e0e6ed;
+  color: #314858;
   font-size: 12px;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -275,7 +257,7 @@ function formatScore(score: number): string {
 }
 
 .file-size {
-  color: #8a92a6;
+  color: #718494;
   font-size: 11px;
 }
 
@@ -288,12 +270,16 @@ function formatScore(score: number): string {
   align-items: center;
   gap: 6px;
   margin-top: 8px;
-  color: #8a92a6;
+  color: #718494;
   font-size: 12px;
 }
 
 .status-line.is-success {
-  color: #53c9b1;
+  color: #25805a;
+}
+
+.status-line.is-error {
+  color: #c45656;
 }
 
 .status-line .el-icon.is-loading {
@@ -302,8 +288,8 @@ function formatScore(score: number): string {
 
 .detection-result {
   padding: 10px;
-  background: #16213e;
-  border: 1px solid #0f3460;
+  background: #f7faf9;
+  border: 1px solid #d8e4de;
   border-radius: 8px;
 }
 
@@ -311,47 +297,20 @@ function formatScore(score: number): string {
   display: flex;
   align-items: center;
   gap: 6px;
-  color: #53c9b1;
+  color: #25805a;
   font-size: 13px;
 }
 
 .result-summary strong {
-  color: #e0e6ed;
+  color: #314858;
   font-size: 15px;
 }
 
-.nodule-list {
-  display: flex;
-  flex-direction: column;
-  margin-top: 8px;
-  border-top: 1px solid #0f3460;
-}
-
-.nodule-row {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 8px;
-  padding: 6px 0;
-  border-bottom: 1px solid #0f3460;
-  font-size: 12px;
-}
-
-.nodule-row:last-child {
-  border-bottom: none;
-}
-
-.nodule-index {
-  color: #e0e6ed;
-  font-weight: 600;
-}
-
-.nodule-diameter {
-  color: #8a92a6;
-}
-
-.nodule-score {
-  color: #53c9b1;
+.result-hint {
+  margin: 6px 0 0;
+  color: #718494;
+  font-size: 11px;
+  line-height: 1.5;
 }
 
 @keyframes image-uploader-rotate {

@@ -1,6 +1,5 @@
 # 排除大文件
 *.pt
-*.ts
 *.zip
 *.nii.gz
 *.raw
@@ -42,6 +41,12 @@ audit/
 # LangGraph 会话持久化数据库
 data/sessions.sqlite
 data/sessions.sqlite-*
+
+# 本地 MinIO 运行时对象存储
+data/minio/
+
+# 用户上传的知识库资料与索引清单
+data/knowledge_uploads/
 
 # 排除日志文件
 *.log

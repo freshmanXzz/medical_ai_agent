@@ -1,35 +1,41 @@
 <template>
   <div class="dashboard page-content">
-    <div class="page-heading">
+    <section class="worklist-hero">
       <div>
-        <h1>Martin</h1>
-        <p>AI Medical Imaging Copilot</p>
-        <p class="subtitle">医学影像分析 · 病例辅助理解 · 影像报告生成</p>
+        <span class="eyebrow">MARTIN · RADIOLOGY WORKLIST</span>
+        <h1>影像分析工作台</h1>
+        <p>从 CT 检测、结节复核到辅助报告，围绕同一份病例持续工作。</p>
       </div>
-      <el-button type="primary" @click="startNewCase">新建病例分析</el-button>
-    </div>
+      <div class="hero-actions">
+        <span class="service-state" :class="{ 'is-offline': !healthOk }">
+          <i />{{ healthOk ? '服务正常' : '服务离线' }}
+        </span>
+        <el-button type="primary" size="large" @click="startNewCase">开始影像分析</el-button>
+      </div>
+    </section>
 
-    <section class="status-grid">
-      <div class="status-panel">
-        <span>系统状态</span>
-        <el-tag :type="healthOk ? 'success' : 'danger'">
-          {{ healthOk ? '运行中' : '离线' }}
-        </el-tag>
+    <section class="worklist-metrics">
+      <div class="metric-card">
+        <span>当前工作病例</span>
+        <strong>1</strong>
+        <small>可从工作区继续分析</small>
       </div>
-      <div class="status-panel">
-        <span>当前病例</span>
-        <strong class="session-id">{{ chatStore.sessionId }}</strong>
+      <div class="metric-card">
+        <span>历史病例记录</span>
+        <strong>{{ sessionStore.sessions.length }}</strong>
+        <small>支持恢复上下文与对话</small>
       </div>
-      <div class="status-panel">
-        <span>历史病例</span>
-        <strong>{{ sessionStore.sessions.length }} 个</strong>
+      <div class="metric-card metric-card--action">
+        <span>下一步</span>
+        <strong>上传 CT</strong>
+        <small>启动结节检测与辅助诊断</small>
       </div>
     </section>
 
     <section class="session-section">
       <div class="section-heading">
-        <h2>最近病例分析记录</h2>
-        <el-button text @click="$router.push('/sessions')">查看全部</el-button>
+        <div><span class="eyebrow">RECENT CASES</span><h2>最近病例记录</h2></div>
+        <el-button text @click="$router.push('/sessions')">查看全部记录</el-button>
       </div>
 
       <el-skeleton v-if="sessionStore.loading" :rows="4" animated />
@@ -44,9 +50,9 @@
         >
           <span class="session-copy">
             <strong>{{ session.title }}</strong>
-            <small>{{ formatDate(session.updated_at) }}</small>
+            <small>最近更新 · {{ formatDate(session.updated_at) }}</small>
           </span>
-          <span class="open-label">打开</span>
+          <span class="open-label">继续分析 →</span>
         </button>
       </div>
     </section>
@@ -106,7 +112,6 @@ async function openSession(threadId: string) {
   margin: 0 auto;
 }
 
-.page-heading,
 .section-heading {
   display: flex;
   align-items: center;
@@ -114,67 +119,55 @@ async function openSession(threadId: string) {
   gap: 16px;
 }
 
-.page-heading h1,
 .section-heading h2 {
   margin: 0;
 }
 
-.page-heading h1 {
-  font-size: 26px;
+.worklist-hero {
+  display: flex;
+  align-items: end;
+  justify-content: space-between;
+  gap: 28px;
+  padding: 16px 0 24px;
 }
 
-.page-heading p {
-  margin: 6px 0 0;
-  color: #6b7785;
-}
+.eyebrow { color: #688094; font-size: 11px; font-weight: 700; letter-spacing: .1em; }
+.worklist-hero h1 { margin: 8px 0 6px; font-size: clamp(28px, 3vw, 38px); letter-spacing: -.035em; }
+.worklist-hero p { margin: 0; color: #607080; }
+.hero-actions { display: flex; align-items: center; gap: 14px; flex: 0 0 auto; }
+.service-state { display: flex; align-items: center; gap: 7px; color: #39765b; font-size: 13px; }
+.service-state i { width: 8px; height: 8px; border-radius: 50%; background: #39a96b; }
+.service-state.is-offline { color: #a34d45; }.service-state.is-offline i { background: #c65b51; }
 
-.page-heading .subtitle {
-  margin-top: 2px;
-  font-size: 13px;
-  color: #97a0ab;
-}
-
-.status-grid {
+.worklist-metrics {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 14px;
   margin-top: 22px;
 }
 
-.status-panel {
+.metric-card {
   display: flex;
   min-width: 0;
-  min-height: 86px;
+  min-height: 112px;
   flex-direction: column;
   justify-content: space-between;
   padding: 16px;
   background: #ffffff;
   border: 1px solid #dfe4e8;
-  border-radius: 6px;
+  border-radius: 10px;
 }
-
-.status-panel > span:first-child {
-  color: #6b7785;
-  font-size: 13px;
-}
-
-.session-id {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
+.metric-card span, .metric-card small { color: #687888; font-size: 12px; }.metric-card strong { font-size: 26px; }.metric-card--action { background: #e8f3ee; border-color: #c7dfd2; }
 
 .session-section {
   margin-top: 22px;
   padding: 18px;
   background: #ffffff;
   border: 1px solid #dfe4e8;
-  border-radius: 6px;
+  border-radius: 10px;
 }
 
-.section-heading h2 {
-  font-size: 18px;
-}
+.section-heading h2 { margin-top: 4px; font-size: 19px; }
 
 .recent-list {
   margin-top: 12px;
@@ -219,17 +212,19 @@ async function openSession(threadId: string) {
 
 .open-label {
   flex: 0 0 auto;
-  color: #16875b;
+  color: #16754e;
   font-size: 13px;
 }
 
 @media (max-width: 700px) {
-  .page-heading {
+  .worklist-hero {
     align-items: flex-start;
     flex-direction: column;
   }
 
-  .status-grid {
+  .hero-actions { width: 100%; justify-content: space-between; }
+
+  .worklist-metrics {
     grid-template-columns: 1fr;
   }
 }

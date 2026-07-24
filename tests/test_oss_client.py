@@ -34,9 +34,13 @@ class TestIsOssPath:
             if os.path.exists(tmp_path):
                 os.remove(tmp_path)
 
-    def test_relative_object_name(self):
-        """非绝对路径且本地不存在时视为 OSS 对象名。"""
+    def test_relative_ct_object_name(self):
+        """默认 ct/ 前缀下的对象名视为 OSS 路径。"""
         assert is_oss_path("ct/sample.nii.gz") is True
+
+    def test_missing_relative_local_path_is_not_oss(self):
+        """缺失的项目相对路径仍应由本地路径校验返回 404。"""
+        assert is_oss_path("data/not-present.nii.gz") is False
 
     def test_absolute_local_path_not_exist(self):
         """绝对路径且本地不存在时视为非 OSS 路径。"""

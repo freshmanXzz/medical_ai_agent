@@ -2,10 +2,11 @@
   <div class="sessions-page">
     <div class="page-heading">
       <div>
-        <h1>会话管理</h1>
-        <p>查看历史记录，或继续之前的病例对话。</p>
+        <span class="eyebrow">CASE RECORDS</span>
+        <h1>病例记录</h1>
+        <p>恢复既往病例的上下文、检测结果和辅助对话。</p>
       </div>
-      <el-button type="primary" @click="handleNewSession">新建会话</el-button>
+      <el-button type="primary" @click="handleNewSession">新建影像分析</el-button>
     </div>
 
     <el-alert
@@ -21,12 +22,12 @@
       <article v-for="session in sessionStore.sessions" :key="session.thread_id" class="session-item">
         <div class="session-main">
           <h2>{{ session.title }}</h2>
-          <span class="session-id">{{ session.thread_id }}</span>
-          <small>最近更新：{{ formatDate(session.updated_at) }}</small>
+          <small>最近更新 · {{ formatDate(session.updated_at) }}</small>
+          <span class="session-id">病例标识 · {{ session.thread_id }}</span>
         </div>
         <div class="session-actions">
           <el-button @click="handleView(session.thread_id)">查看记录</el-button>
-          <el-button type="primary" @click="handleSwitch(session.thread_id)">继续对话</el-button>
+          <el-button type="primary" @click="handleSwitch(session.thread_id)">继续分析</el-button>
         </div>
       </article>
     </div>
@@ -114,9 +115,12 @@ function handleNewSession() {
 }
 
 .page-heading h1 {
-  margin: 0;
-  font-size: 26px;
+  margin: 5px 0 0;
+  font-size: 28px;
+  letter-spacing: -.03em;
 }
+
+.eyebrow { color: #688094; font-size: 10px; font-weight: 700; letter-spacing: .1em; }
 
 .page-heading p {
   margin: 6px 0 0;
@@ -128,7 +132,7 @@ function handleNewSession() {
   margin-top: 14px;
   background: #ffffff;
   border: 1px solid #dfe4e8;
-  border-radius: 6px;
+  border-radius: 10px;
 }
 
 .session-item {
@@ -136,7 +140,7 @@ function handleNewSession() {
   align-items: center;
   justify-content: space-between;
   gap: 20px;
-  padding: 16px 18px;
+  padding: 18px;
   border-bottom: 1px solid #edf0f2;
 }
 
@@ -154,13 +158,13 @@ function handleNewSession() {
 .session-main h2 {
   margin: 0;
   overflow-wrap: anywhere;
-  font-size: 16px;
+  font-size: 17px;
 }
 
 .session-id,
 .session-main small {
   color: #75818c;
-  font-size: 12px;
+  font-size: 11px;
   overflow-wrap: anywhere;
 }
 

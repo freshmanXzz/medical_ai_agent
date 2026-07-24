@@ -77,6 +77,53 @@ class KnowledgeDocumentResponse(BaseModel):
     content: str = Field(..., description="Markdown 原文内容")
 
 
+class KnowledgeDocumentSummary(BaseModel):
+    """知识库管理页中的单份资料摘要。"""
+    document_id: str
+    filename: str
+    source_type: str
+    status: str
+    created_at: str = ""
+    chunk_count: Optional[int] = None
+    deletable: bool = False
+    error: Optional[str] = None
+
+
+class KnowledgeDocumentListResponse(BaseModel):
+    documents: List[KnowledgeDocumentSummary]
+    total: int
+
+
+class KnowledgeRebuildResponse(BaseModel):
+    documents: int
+    chunks: int
+
+
+class KnowledgeSearchRequest(BaseModel):
+    """知识库原始向量检索请求。"""
+
+    query: str = Field(..., description="用于向量召回的原始查询文本")
+
+
+class KnowledgeSearchResult(BaseModel):
+    """单个知识库向量召回结果。"""
+
+    rank: int
+    score: float
+    source: str = ""
+    source_type: str = ""
+    document_id: str = ""
+    content: str
+
+
+class KnowledgeSearchResponse(BaseModel):
+    """知识库原始向量检索响应。"""
+
+    query: str
+    results: List[KnowledgeSearchResult] = Field(default_factory=list)
+    total: int
+
+
 # ── 报告生成 ───────────────────────────────────────────────
 
 class ReportRequest(BaseModel):

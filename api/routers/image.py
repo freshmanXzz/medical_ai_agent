@@ -146,6 +146,10 @@ def analyze_ct_image(request: DetectRequest):
         logger.error("影像检测失败: %s", raw_text)
         raise HTTPException(status_code=500, detail=raw_text)
 
+    # 该接口直接调用检测工具，不经过 AgentExecutor.invoke；显式将工具更新后的
+    # CaseContext 写回当前 thread 的 SqliteSaver checkpoint。
+    agent.save_case_context()
+
     total_match = re.search(r"检测到结节总数:\s*(\d+)", raw_text)
     total = int(total_match.group(1)) if total_match else 0
     nodules = []

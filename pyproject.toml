@@ -41,6 +41,7 @@ dependencies = [
     "langgraph-checkpoint>=2.0.0",
     "langgraph-checkpoint-sqlite>=3.0.0",
     "langchain-community>=0.3.0",
+    "docx2txt>=0.9",
     "langchain-openai>=0.3.0",
     "chromadb>=0.6.0",
     "openai>=1.0.0",

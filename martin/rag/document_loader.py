@@ -4,7 +4,8 @@
 - Markdown (.md)
 - CSV (.csv)
 - PDF (.pdf)
-- Word (.docx)
+  - Word (.docx)
+  - Plain text (.txt)
 
 提供目录遍历加载和基于配置的知识库加载功能。
 """
@@ -30,10 +31,15 @@ LOADER_MAP = {
     ".csv": CSVLoader,
     ".pdf": PyPDFLoader,
     ".docx": Docx2txtLoader,
+    ".txt": TextLoader,
 }
 
 # 支持的扩展名集合
 SUPPORTED_EXTENSIONS = set(LOADER_MAP.keys())
+
+
+class KnowledgeBaseLoadError(RuntimeError):
+    """知识库配置中的内置来源未能完整加载。"""
 
 
 def _get_loader(file_path: str):
@@ -49,6 +55,12 @@ def _get_loader(file_path: str):
     loader_class = LOADER_MAP.get(ext)
     if loader_class is None:
         return None
+    if loader_class is TextLoader:
+        return loader_class(file_path, encoding="utf-8", autodetect_encoding=True)
+    if loader_class is CSVLoader:
+        # 内置资料使用 UTF-8；对历史资料启用编码探测，避免因单份 CSV
+        # 解码失败而在重建时静默丢失医学依据。
+        return loader_class(file_path, encoding="utf-8-sig", autodetect_encoding=True)
     return loader_class(file_path)
 
 
@@ -97,7 +109,7 @@ def load_knowledge_directory(dir_path: str) -> List[Document]:
     return documents
 
 
-def load_knowledge_base() -> List[Document]:
+def load_knowledge_base(*, strict: bool = False) -> List[Document]:
     """从配置文件中读取知识库文档列表，加载所有文档并添加分类信息。
 
     配置来源：configs/knowledge_base.yaml
@@ -106,7 +118,8 @@ def load_knowledge_base() -> List[Document]:
     - 为每个 Document 的 metadata 添加 category（分类）字段
 
     Returns:
-        所有加载完成的 Document 列表
+        所有加载完成的 Document 列表。``strict=True`` 时，任一配置来源
+        缺失或无法加载都会抛出 :class:`KnowledgeBaseLoadError`。
     """
     # 读取知识库配置文件
     config_path = config.project_root / "configs" / "knowledge_base.yaml"
@@ -130,23 +143,30 @@ def load_knowledge_base() -> List[Document]:
         return []
 
     all_documents: List[Document] = []
+    expected_sources: set[str] = set()
+    failed_sources: list[str] = []
     for doc_entry in documents_config:
         filename = doc_entry.get("filename")
         category = doc_entry.get("category", "unknown")
 
         if not filename:
             warnings.warn("知识库配置中存在缺少 filename 的文档条目")
+            failed_sources.append("<missing filename>")
             continue
+
+        expected_sources.add(filename)
 
         file_path = kb_dir / filename
         if not file_path.exists():
             warnings.warn(f"知识库文档不存在: {file_path}")
+            failed_sources.append(f"{filename}（文件不存在）")
             continue
 
         try:
             loader = _get_loader(str(file_path))
             if loader is None:
                 warnings.warn(f"不支持的文档格式: {file_path.suffix} ({filename})")
+                failed_sources.append(f"{filename}（不支持的格式）")
                 continue
             docs = loader.load()
             for doc in docs:
@@ -155,6 +175,15 @@ def load_knowledge_base() -> List[Document]:
             all_documents.extend(docs)
         except Exception as e:
             warnings.warn(f"加载知识库文档失败 [{filename}]: {e}")
+            failed_sources.append(f"{filename}（{e}）")
             continue
+
+    loaded_sources = {document.metadata.get("source", "") for document in all_documents}
+    missing_sources = expected_sources - loaded_sources
+    if strict and (failed_sources or missing_sources):
+        details = failed_sources + [f"{source}（未产生可用文档）" for source in sorted(missing_sources)]
+        raise KnowledgeBaseLoadError(
+            "内置知识库未完整加载，已取消重建：" + "；".join(details)
+        )
 
     return all_documents

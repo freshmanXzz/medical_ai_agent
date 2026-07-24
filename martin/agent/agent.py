@@ -320,7 +320,26 @@ class AgentExecutor:
             parsed_result.get("intermediate_steps", [])
         )
 
+        self.save_case_context()
+
         return parsed_result
+
+    def save_case_context(self) -> None:
+        """将当前病例上下文写入该会话的最新 LangGraph checkpoint。
+
+        除了常规 ``invoke``，影像 API 也会直接调用检测工具。两条路径都必须
+        使用同一入口写回 state，避免进程内显示已更新、重启后却丢失病例数据。
+        """
+        config = {"configurable": {"thread_id": self.thread_id}}
+        try:
+            self._agent.update_state(
+                config,
+                {"case_context": self.case_context.to_dict()},
+            )
+        except Exception as exc:
+            # 不影响已生成的回答，但记录错误，避免“界面显示已更新、重启后丢失”
+            # 这类难以追踪的数据不一致问题。
+            logger.error("写回病例上下文 checkpoint 失败: %s", exc, exc_info=True)
 
     def _sync_case_context_from_steps(
         self, intermediate_steps: List[Tuple[AgentAction, str]]

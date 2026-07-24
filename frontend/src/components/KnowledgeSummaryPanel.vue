@@ -86,15 +86,15 @@ function handleViewOriginal(filename: string): void {
 
 <style scoped>
 .context-card {
-  background: #16213e;
-  border: 1px solid #0f3460;
-  border-radius: 8px;
+  background: #ffffff;
+  border: 1px solid #d7e0e6;
+  border-radius: 10px;
 }
 
 .context-card :deep(.el-card__header) {
   padding: 10px 12px;
-  background: #1a1a2e;
-  border-bottom: 1px solid #0f3460;
+  background: #f7faf9;
+  border-bottom: 1px solid #e2e9ed;
 }
 
 .context-card :deep(.el-card__body) {
@@ -105,7 +105,7 @@ function handleViewOriginal(filename: string): void {
   display: flex;
   align-items: center;
   gap: 6px;
-  color: #53c9b1;
+  color: #2c7054;
   font-size: 13px;
   font-weight: 600;
 }
@@ -129,8 +129,8 @@ function handleViewOriginal(filename: string): void {
   flex-direction: column;
   gap: 6px;
   padding: 8px;
-  background: #1a1a2e;
-  border: 1px solid #0f3460;
+  background: #f7faf9;
+  border: 1px solid #e2e9ed;
   border-radius: 6px;
 }
 
@@ -141,12 +141,12 @@ function handleViewOriginal(filename: string): void {
 }
 
 .source-icon {
-  color: #53c9b1;
+  color: #2c7054;
   font-size: 14px;
 }
 
 .citation-content {
-  color: #e0e6ed;
+  color: #314858;
   font-size: 12px;
   line-height: 1.6;
   overflow-wrap: anywhere;
@@ -158,7 +158,7 @@ function handleViewOriginal(filename: string): void {
 }
 
 .summary-text {
-  color: #e0e6ed;
+  color: #314858;
   font-size: 12px;
   line-height: 1.6;
   overflow-wrap: anywhere;

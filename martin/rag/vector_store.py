@@ -129,3 +129,36 @@ def get_retriever(vector_store, top_k=None):
         search_type="similarity",
         search_kwargs={"k": k},
     )
+
+
+def add_documents(documents, document_id: str):
+    """向默认集合增量加入某份知识文档的切分结果。"""
+    global _vector_store
+    if Chroma is None:
+        raise ImportError("langchain_chroma 未安装，请执行: pip install langchain-chroma")
+
+    from martin.rag.embeddings import get_embeddings
+
+    if _vector_store is None:
+        _vector_store = Chroma(
+            persist_directory=config.chroma_persist_dir,
+            embedding_function=get_embeddings(),
+            collection_name=config.chroma_collection_name,
+        )
+    ids = [f"{document_id}:{index}" for index in range(len(documents))]
+    _vector_store.add_documents(documents, ids=ids)
+    return len(ids)
+
+
+def delete_document_vectors(document_id: str) -> None:
+    """删除指定文档写入的所有向量。"""
+    global _vector_store
+    store = _vector_store or get_vector_store()
+    if store is not None:
+        store._collection.delete(where={"document_id": document_id})
+
+
+def reset_vector_store_cache() -> None:
+    """在删除或整库重建后使下一次检索重新打开 Chroma 集合。"""
+    global _vector_store
+    _vector_store = None

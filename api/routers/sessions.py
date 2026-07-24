@@ -41,16 +41,22 @@ def get_session_detail(thread_id: str):
     checkpointer = get_default_checkpointer()
     manager = SessionManager(checkpointer)
     
-    messages = manager.get_messages(thread_id)
-    if not messages and thread_id != "default":
-        raise HTTPException(status_code=404, detail=f"会话 {thread_id} 不存在")
-    
     # 从 Checkpointer state 读取病例上下文
     case_context = manager.get_case_context(thread_id)
+    messages = manager.get_messages(thread_id)
+    if not messages and not case_context and thread_id != "default":
+        raise HTTPException(status_code=404, detail=f"会话 {thread_id} 不存在")
+
+    image_info = case_context.get("image_info", {}) if isinstance(case_context, dict) else {}
+    fallback_title = (
+        image_info.get("filename") or image_info.get("image_name", "")
+        if isinstance(image_info, dict)
+        else ""
+    )
     
     return SessionDetailResponse(
         thread_id=thread_id,
-        title=messages[0].content[:48] if messages else "未命名会话",
+        title=messages[0].content[:48] if messages else (fallback_title or "未命名会话"),
         messages=[{"role": m.role, "content": m.content} for m in messages],
         case_context=case_context,
     )

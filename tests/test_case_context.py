@@ -59,9 +59,29 @@ class TestCaseContext:
         assert ctx.image_info["image_path"] == "/data/ct/test.nii.gz"
         assert ctx.image_info["image_name"] == "test.nii.gz"
         assert len(ctx.nodules) == 2
+        assert ctx.detection_completed is True
         assert ctx.nodules[0]["diameter"] == 8.5
         assert ctx.nodules[1]["score"] == 0.75
         assert ctx.is_empty() is False
+
+    def test_detection_completed_round_trip_and_legacy_restore(self):
+        """检测完成状态应持久化，旧会话含结节时仍可恢复为已检测。"""
+        ctx = CaseContext()
+        ctx.update_from_detection({
+            "image": "/data/ct/no-nodule.nii.gz",
+            "total_nodules": 0,
+            "nodules": [],
+        })
+
+        restored = CaseContext.from_dict(ctx.to_dict())
+        assert restored.detection_completed is True
+        assert restored.nodules == []
+
+        legacy = CaseContext.from_dict({
+            "image_info": {"image_path": "/data/ct/legacy.nii.gz"},
+            "nodules": [{"index": 1, "diameter": 5.0, "score": 0.8}],
+        })
+        assert legacy.detection_completed is True
 
     def test_extract_patient_info(self):
         """验证从自然语言文本中正确抽取患者信息。"""
@@ -204,7 +224,7 @@ class TestAgentExecutorContext:
 
     @patch("martin.agent.agent.get_chat_model")
     def test_agent_executor_syncs_retrieve_knowledge(self, mock_get_chat_model):
-        """验证 retrieve_knowledge 工具输出会同步到 case_context.knowledge_summary。"""
+        """工具结果应同步到 CaseContext 并写回 LangGraph checkpoint。"""
         mock_get_chat_model.return_value = MagicMock()
 
         executor = AgentExecutor(tools=[], verbose=False, thread_id="test-sync")
@@ -226,6 +246,9 @@ class TestAgentExecutorContext:
 
         executor.invoke({"input": "检索知识"})
         assert executor.case_context.knowledge_summary == "检索到的知识摘要"
+        mock_agent.update_state.assert_called_once()
+        _, update = mock_agent.update_state.call_args.args
+        assert update["case_context"]["knowledge_summary"] == "检索到的知识摘要"
 
 
 class TestGenerateReportContext:

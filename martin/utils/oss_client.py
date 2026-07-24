@@ -27,7 +27,7 @@ def is_oss_path(path: str) -> bool:
 
     支持以下 OSS 路径格式：
     - oss://bucket/object_name
-    - 纯对象名（如 ct/sample.nii.gz），且本地文件不存在时视为 OSS 路径
+    - MinIO 默认 ``ct/`` 前缀下的纯对象名（如 ct/sample.nii.gz）
 
     Args:
         path: 输入路径字符串。
@@ -50,8 +50,10 @@ def is_oss_path(path: str) -> bool:
     if path.startswith("/") or ":" in path:
         return False
 
-    # 纯相对路径（无盘符、非 / 开头），本地文件不存在 → 视为 OSS 对象名
-    return True
+    # 上传接口默认产生 ct/<uuid> 路径。其他相对路径应优先视为项目内的
+    # 本地路径，避免 data/not-found.nii.gz 这类输入在 MinIO 不可用时被误报
+    # 为服务端错误，而不是清晰的 404。
+    return path.replace("\\", "/").startswith("ct/")
 
 
 def parse_oss_path(path: str) -> tuple:

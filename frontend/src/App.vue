@@ -3,7 +3,7 @@
     <el-aside class="desktop-nav" width="216px">
       <div class="brand-block">
         <strong>Martin</strong>
-        <span>影像 Copilot</span>
+        <span>临床影像工作站</span>
       </div>
       <el-menu
         :default-active="$route.path"
@@ -12,10 +12,11 @@
         text-color="#d7dee6"
         active-text-color="#41c58a"
       >
-        <el-menu-item index="/">首页</el-menu-item>
-        <el-menu-item index="/workspace">病例工作区</el-menu-item>
+        <el-menu-item index="/">工作台</el-menu-item>
+        <el-menu-item index="/workspace">影像分析</el-menu-item>
         <el-menu-item index="/report">报告</el-menu-item>
-        <el-menu-item index="/sessions">病例管理</el-menu-item>
+        <el-menu-item index="/sessions">病例记录</el-menu-item>
+        <el-menu-item index="/knowledge">知识库</el-menu-item>
       </el-menu>
     </el-aside>
 
@@ -26,7 +27,7 @@
         </button>
         <div>
           <strong>Martin</strong>
-          <span>影像 Copilot</span>
+          <span>临床影像工作站</span>
         </div>
       </header>
       <el-main class="app-main">
@@ -36,12 +37,13 @@
   </el-container>
 
   <el-drawer v-model="mobileNavOpen" direction="ltr" size="min(82vw, 280px)" :with-header="false">
-    <div class="drawer-brand">Martin 影像 Copilot</div>
+    <div class="drawer-brand">Martin 临床影像工作站</div>
     <el-menu :default-active="$route.path" @select="handleMobileNavigate">
-      <el-menu-item index="/">首页</el-menu-item>
-      <el-menu-item index="/workspace">病例工作区</el-menu-item>
+      <el-menu-item index="/">工作台</el-menu-item>
+      <el-menu-item index="/workspace">影像分析</el-menu-item>
       <el-menu-item index="/report">报告</el-menu-item>
-      <el-menu-item index="/sessions">病例管理</el-menu-item>
+      <el-menu-item index="/sessions">病例记录</el-menu-item>
+      <el-menu-item index="/knowledge">知识库</el-menu-item>
     </el-menu>
   </el-drawer>
 </template>
@@ -61,8 +63,8 @@ function handleMobileNavigate(path: string) {
 
 <style>
 :root {
-  color: #1f2933;
-  background: #f4f6f8;
+  color: #17212b;
+  background: #edf1f4;
   font-family: Inter, "Microsoft YaHei", Arial, sans-serif;
 }
 
@@ -85,24 +87,25 @@ body {
 
 .app-shell {
   height: 100vh;
-  background: #f4f6f8;
+  background: #edf1f4;
 }
 
 .desktop-nav {
-  background: #17212b;
-  border-right: 1px solid #101820;
+  background: #101b27;
+  border-right: 1px solid #0b131d;
 }
 
 .brand-block {
   display: flex;
   flex-direction: column;
   gap: 4px;
-  padding: 24px 22px 20px;
+  padding: 28px 22px 24px;
   color: #ffffff;
 }
 
 .brand-block strong {
-  font-size: 22px;
+  letter-spacing: -0.02em;
+  font-size: 23px;
 }
 
 .brand-block span {
@@ -121,7 +124,7 @@ body {
 
 .app-main {
   min-width: 0;
-  padding: 22px;
+  padding: 18px 22px 22px;
   overflow: auto;
 }
 
@@ -151,7 +154,7 @@ body {
     min-height: 58px;
     padding: 8px 14px;
     color: #ffffff;
-    background: #17212b;
+    background: #101b27;
   }
 
   .mobile-header > div {

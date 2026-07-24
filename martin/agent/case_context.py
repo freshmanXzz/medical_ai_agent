@@ -30,6 +30,9 @@ class CaseContext:
             "image_name": None,
         }
         self.nodules: list[dict[str, Any]] = []
+        # ``nodules == []`` 既可能表示“尚未检测”，也可能表示“检测完成但未发现
+        # 结节”。独立保存完成状态，供恢复历史会话和生成报告时准确区分两种情况。
+        self.detection_completed: bool = False
         self.knowledge_summary: str = ""
         self.clinical_notes: list[str] = []
         self.created_at: str = self._now_iso()
@@ -58,6 +61,7 @@ class CaseContext:
         # 若检测结果包含结节列表则保存，否则重置为空列表
         raw_nodules = detection_result.get("nodules")
         self.nodules = list(raw_nodules) if raw_nodules else []
+        self.detection_completed = True
 
         self._touch()
 
@@ -163,6 +167,7 @@ class CaseContext:
             "patient_info": dict(self.patient_info),
             "image_info": dict(self.image_info),
             "nodules": list(self.nodules),
+            "detection_completed": self.detection_completed,
             "knowledge_summary": self.knowledge_summary,
             "clinical_notes": list(self.clinical_notes),
             "created_at": self.created_at,
@@ -183,6 +188,12 @@ class CaseContext:
         instance.patient_info.update(data.get("patient_info", {}))
         instance.image_info.update(data.get("image_info", {}))
         instance.nodules = list(data.get("nodules", []))
+        # 旧 checkpoint 没有该字段。已存在结节时可可靠地判定检测完成；
+        # 空结节的旧数据无法区分“未检测”和“检测无结节”，保持为未检测以免
+        # 生成缺少检测依据的报告。新写入的 checkpoint 均会携带明确状态。
+        instance.detection_completed = bool(
+            data.get("detection_completed", bool(instance.nodules))
+        )
         instance.knowledge_summary = data.get("knowledge_summary", "")
         instance.clinical_notes = list(data.get("clinical_notes", []))
         instance.created_at = data.get("created_at", instance.created_at)
