@@ -32,9 +32,6 @@ Martin 是一个开源的医学影像 AI Copilot，面向**呼吸科 / 胸外科
 
 ![Martin 项目分层架构图](docs/architecture.svg)
 
-**临床端到端数据流：**
-
-![Martin 临床端到端数据流](docs/architecture-flow.svg)
 
 **两层记忆架构：**
 
@@ -42,19 +39,6 @@ Martin 是一个开源的医学影像 AI Copilot，面向**呼吸科 / 胸外科
 |------|------|------|
 | 对话记忆 | LangGraph `SqliteSaver` | 保存完整消息历史与 LangGraph checkpoint，支持重启恢复 |
 | 病例记忆 | `CaseContext`（同一 checkpoint 的结构化状态） | 患者信息 / 影像 / 结节 / 知识摘要 / 临床备注 / 检测完成状态 |
-
-**框架职责：** LangChain `create_agent` 作为 Agent 构图入口，并提供 `ChatOpenAI`、`@tool`、动态 Prompt middleware、LCEL 报告链及 RAG 集成；LangGraph 是其底层运行时，负责 ReAct 图、状态、工具路由与 checkpoint。
-
-**Web 工作站信息架构：**
-
-| 区域 | 内容 | 作用 |
-|------|------|------|
-| 左栏：检查与发现 | CT 上传、文件状态、唯一的结节逐项清单 | 建立检查并选择待复核结节 |
-| 中栏：影像分析区 | 深色分析画布、分析状态、当前选中结节 | 呈现 AI 的结构化分析结果；当前不是 DICOM/CT 切片阅片器 |
-| 右栏：诊断信息链 | 结节尺寸与置信度、病例信息、RAG 引用、报告入口 | 将检测依据、医学知识和下一步操作放在同一审阅链中 |
-| Martin Copilot | 可收起的对话与工具时间线面板 | 保留多轮问答、附件、WebSocket 过程展示，不占据主工作区 |
-
-知识摘要支持“查看原文”：点击引用条目弹出 Drawer 展示知识库 Markdown 原文档（接口：`GET /api/knowledge/document/{filename}`）。
 
 ---
 
@@ -217,15 +201,12 @@ python -m martin web
 python -m martin web
 ```
 
-浏览器访问 `http://127.0.0.1:8000`。
-
 需要使用 CT 文件上传或 OSS 影像分析时，先安装 MinIO 并在独立终端启动本机服务：
 
 ```bash
 minio server ./data/minio --console-address ":9001"
 ```
 
-MinIO API 地址为 `http://127.0.0.1:9000`，管理控制台地址为 `http://127.0.0.1:9001`。
 
 **开发模式**（前后端分离热重载）：
 
