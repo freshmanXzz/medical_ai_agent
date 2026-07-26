@@ -4,6 +4,10 @@
 
 ## 一、整体架构
 
+> 最新的可编辑运行时架构图：[`arch.drawio`](arch.drawio)，对应 SVG：[`architecture.svg`](architecture.svg)。该图以当前 Vue/FastAPI/Agent/RAG/Vision/存储实现为准。
+
+![Martin 运行时架构图](architecture.svg)
+
 Martin 采用**分层架构**，从上到下依次为：
 
 ```

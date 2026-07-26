@@ -28,40 +28,9 @@ Martin 是一个开源的医学影像 AI Copilot，面向**呼吸科 / 胸外科
 
 ## 🏗 Architecture
 
-```mermaid
-flowchart LR
-    User[用户输入] --> Agent[Agent Core]
+**运行时架构图：**下图由当前代码的前端、FastAPI 路由、Agent、RAG、视觉推理与外部服务关系生成；可编辑源文件为 [`docs/arch.drawio`](docs/arch.drawio)。
 
-    subgraph Agent[Agent Core]
-        direction TB
-        LLM[DeepSeek LLM]
-        Planner[Planning / Reasoning]
-        Memory[Memory System]
-        LLM --> Planner
-        Memory -.-> LLM
-    end
-
-    subgraph Tools[Core Tools]
-        direction TB
-        T1[analyze_image]
-        T2[retrieve_knowledge]
-        T3[generate_report]
-        T4[update_case_context]
-    end
-
-    subgraph Knowledge[Knowledge / Models]
-        direction TB
-        Vision[MONAI RetinaNet]
-        RAG[ChromaDB + BGE]
-        Case[CaseContext]
-    end
-
-    Agent --> Tools
-    Tools --> Knowledge
-    Knowledge --> Agent
-
-    Agent --> Output[最终响应]
-```
+![Martin 运行时架构图](docs/architecture.svg)
 
 **两层记忆架构：**
 
@@ -265,7 +234,6 @@ cd frontend
 npm run dev
 ```
 
-访问 `http://localhost:5173`。
 
 **核心交互流程：**
 
