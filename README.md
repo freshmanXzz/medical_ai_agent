@@ -45,19 +45,22 @@ Martin 是一个开源的医学影像 AI Copilot，面向**呼吸科 / 胸外科
 ## 🔄 Workflow
 
 ```
-用户输入
+临床医生在 Vue 工作台上传 CT / 提出病例问题
+  ↓  REST `/api/agent/chat` 或 WebSocket `/api/ws/agent/{session_id}`
+FastAPI 路由接收请求，并按 session_id 取得 AgentExecutor
   ↓
 AgentExecutor.invoke()
-  ├─ 注入结构化病例上下文 (CaseContext)
-  └─ LangGraph 循环：
-       1. LLM 推理 → 是否调用工具
-       2. 有 tool_calls → 执行 @tool 函数
-       3. 工具结果 → ToolMessage → 返回 LLM
-       4. 循环直到生成最终回答
+  ├─ 从 SQLite LangGraph checkpoint 恢复 CaseContext
+  ├─ 注入动态病例上下文与系统提示词
+  └─ LangChain `create_agent` 驱动的 LangGraph ReAct 循环：
+       1. DeepSeek 判断是否需要工具
+       2. 调用影像分析 / 知识检索 / 报告生成 / 更新病例 / MinIO 上传下载
+       3. 工具结果写入 ToolMessage，必要时继续推理
+       4. 生成最终临床辅助回答
   ↓
-同步病例上下文 + 审计日志
+同步 CaseContext、保存 checkpoint 并写入审计 / 运行日志
   ↓
-输出结果
+REST 返回结果或 WebSocket 推送工具状态、回答与报告
 ```
 
 ---
@@ -206,41 +209,6 @@ python -m martin web
 ```bash
 minio server ./data/minio --console-address ":9001"
 ```
-
-
-**开发模式**（前后端分离热重载）：
-
-```bash
-# 终端1：后端（已安装项目依赖的环境）
-conda activate martin
-python -m martin web --reload
-# 或：python -m uvicorn api.main:app --host 127.0.0.1 --port 8000 --reload
-
-# 终端2：前端
-cd frontend
-npm run dev
-```
-
-
-**核心交互流程：**
-
-1. **新建或恢复病例** — 在“病例记录”创建新病例，或点击“继续分析”恢复历史会话、对话记录和 `CaseContext`。
-2. **上传 CT 影像** — 在左侧“检查与发现”上传 `.nii` / `.nii.gz` 文件；文件会经 MinIO 与分析接口处理。
-3. **审阅 AI 发现** — 分析完成后，左栏列出全部结节；点击某项仅更新前端的当前选中状态，便于逐项复核。
-4. **查看诊断信息链** — 中栏展示分析状态与选中结节；右栏串联尺寸、置信度、影像信息、病例风险因素和 RAG 知识引用。
-5. **按需使用 Martin Copilot** — 点击右下角 Copilot 展开多轮对话、附件上传和 Agent 工具时间线；WebSocket 与 REST 回退行为保持不变。
-6. **生成辅助报告** — 从工作区或“报告工作台”生成 brief / detailed / research 报告。恢复历史病例时，前端会由已持久化的 `CaseContext` 重建检测结果，因此无需重复检测。
-7. **查看知识原文** — 点击知识引用的“查看原文”链接，弹出 Drawer 阅读内置指南或上传资料的原文。
-
-### 知识库管理与向量化
-
-左侧导航的“知识库”页面用于维护 RAG 资料：
-
-1. 上传 `.md`、`.txt`、`.pdf`、`.docx` 或 `.csv` 文件；系统会自动切分并写入 Chroma 向量库。
-2. 页面会同时列出项目内置指南（只读）和用户上传资料（可删除）。删除上传资料时会同步删除对应向量。
-3. 点击“重建全部向量”会重新索引内置指南和全部上传资料，适用于更换 embedding 模型或修复索引时。
-
-上传资料和运行清单保存在 `data/knowledge_uploads/`，不会提交到 Git。向量化依赖本地 BGE embedding 模型，首次加载可能需要一些时间。
 
 ### 运行效果
 
