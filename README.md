@@ -28,9 +28,13 @@ Martin 是一个开源的医学影像 AI Copilot，面向**呼吸科 / 胸外科
 
 ## 🏗 Architecture
 
-**项目分层架构图：**下图概览前端交互、FastAPI 接入、智能体编排、医疗 AI 能力及数据依赖；可编辑源文件为 [`docs/arch.drawio`](docs/arch.drawio)，端到端流程见 [数据流图](docs/architecture-flow.svg)。
+**项目分层架构图：**下图概览前端交互、FastAPI 接入、智能体编排、医疗 AI 能力及数据依赖；可编辑源文件为 [`docs/arch.drawio`](docs/arch.drawio)。
 
 ![Martin 项目分层架构图](docs/architecture.svg)
+
+**临床端到端数据流：**
+
+![Martin 临床端到端数据流](docs/architecture-flow.svg)
 
 **两层记忆架构：**
 
