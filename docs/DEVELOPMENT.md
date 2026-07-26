@@ -29,7 +29,7 @@
 ### 第四阶段：Agent 化
 
 从流水线模式升级为 Agent 模式：
-- LangChain + LangGraph 编排
+- LangChain `create_agent` 编排；LangGraph 作为状态、路由与 checkpoint 运行时
 - 多轮对话能力
 - 工具自动调用
 - 上下文记忆系统
@@ -38,12 +38,13 @@
 
 ## 二、关键技术决策
 
-### 2.1 为什么选 LangChain 1.x 而非 0.x
+### 2.1 为什么采用 LangChain create_agent 与 LangGraph 运行时
 
-**原因：**
-- 1.x 是 LangChain 的稳定主线，API 设计更简洁
-- `create_agent` 新 API 底层基于 LangGraph，灵活可控
-- 与 LangGraph 深度集成，StateGraph 可扩展性强
+**当前选择：**
+- `langchain.agents.create_agent` 是官方 Agent 构图入口，底层使用 LangGraph 运行时
+- `MartinState` 与 LangGraph Checkpointer 管理结构化病例状态和持久化
+- LangChain `@dynamic_prompt` middleware 在每轮模型调用前注入 `CaseContext`
+- LangChain 1.x 同时提供 `ChatOpenAI`、`@tool`、LCEL 和 RAG 生态组件
 
 **迁移代价：**
 - 旧版 `initialize_agent` / `AgentExecutor` 全部重写
@@ -93,14 +94,14 @@
 
 ## 三、遇到的问题与解决方案
 
-### 3.1 LangChain 版本兼容问题
+### 3.1 LangGraph 预制 Agent API 迁移
 
-**问题：** 项目初期使用 LangChain 0.x 的旧 API，后来升级到 1.x 导致大量导入错误。
+**问题：** `langgraph.prebuilt.create_react_agent` 面临弃用，需要迁移到 LangChain 1.x 推荐的高层 Agent API。
 
-**解决：**
-- 统一使用 `langchain.agents.create_agent` 新 API
-- 记忆系统迁移到 `langgraph.checkpoint.memory.MemorySaver`
-- 工具定义统一使用 `@tool` 装饰器
+**当前实现：**
+- Agent 使用 `langchain.agents.create_agent`，动态 Prompt 由 `@dynamic_prompt` middleware 提供
+- 记忆系统使用 LangGraph Checkpointer（生产环境为 `SqliteSaver`）
+- 工具定义使用 LangChain `@tool` 装饰器
 
 ### 3.2 上下文共享问题
 

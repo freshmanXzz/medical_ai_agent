@@ -1,6 +1,7 @@
 """Agent 编排模块
 
-完整迁移至 langchain 1.x：create_agent + SqliteSaver 会话记忆。
+基于 LangChain create_agent 构建 Agent，底层由 LangGraph 执行 ReAct 图、
+状态管理和会话持久化。动态病例 Prompt 通过 LangChain middleware 注入；
 底层走 DeepSeek 原生 Function Calling，通过 Prompt 强制 reasoning 字段。
 
 日志分离：
@@ -11,20 +12,15 @@
 import logging
 import os
 from datetime import datetime
-from typing import Annotated, Any, Dict, List, Optional, Tuple, TypedDict
+from typing import Any, Dict, List, Optional, Tuple
 
+from langchain.agents import AgentState, create_agent as create_langchain_agent
+from langchain.agents.middleware import ModelRequest, dynamic_prompt
 from langchain_core.agents import AgentAction
 from langchain_core.callbacks import BaseCallbackHandler
-from langchain_core.messages import AIMessage, BaseMessage, SystemMessage, ToolMessage
+from langchain_core.messages import AIMessage, ToolMessage
 from langchain_core.tools import BaseTool
 from langgraph.checkpoint.base import BaseCheckpointSaver
-from langgraph.graph.message import add_messages
-from langgraph.managed import IsLastStep, RemainingSteps
-
-# 使用 langgraph.prebuilt.create_react_agent 而非 langchain.agents.create_agent，
-# 因为前者支持 prompt Callable（动态注入 CaseContext），后者仅有静态 system_prompt。
-# 弃用警告预计在 LangGraph V2.0 才移除，当前 V1.x 可安全使用。
-from langgraph.prebuilt import create_react_agent as create_langchain_agent
 
 from martin.agent import (
     analyze_image,
@@ -175,56 +171,45 @@ class AgentLoggingHandler(BaseCallbackHandler):
 # ─── State Schema 与 Prompt 构造 ─────────────────────────────
 
 
-class MartinState(TypedDict):
-    """Martin Agent 的 State Schema，扩展 LangGraph 默认 State。"""
+class MartinState(AgentState):
+    """Martin 的 LangChain Agent State，底层由 LangGraph 持久化。"""
 
-    messages: Annotated[list[BaseMessage], add_messages]
-    is_last_step: IsLastStep
-    remaining_steps: RemainingSteps
     case_context: dict  # CaseContext.to_dict() 的序列化结果
 
 
-def _build_prompt(state: MartinState) -> list:
-    """从 state 中提取 case_context，动态生成完整消息列表。
-
-    LangGraph 的 create_react_agent 在 prompt 为 Callable 且返回 list 时，
-    会用返回值完全替换 LLM 的输入消息列表。因此必须包含 state["messages"]，
-    否则对话历史和用户输入会丢失。
-    """
-    messages = state.get("messages", [])
+def _build_system_prompt(state: MartinState) -> str:
+    """从 State 中提取病例上下文，构建当前轮的系统提示词。"""
     ctx_dict = state.get("case_context") or {}
 
-    system_messages = []
     if ctx_dict:
         try:
             ctx = CaseContext.from_dict(ctx_dict)
             context_str = ctx.to_context_string(max_nodules=5)
             if context_str:
-                system_messages = [
-                    SystemMessage(content=SYSTEM_PROMPT),
-                    SystemMessage(
-                        content=(
-                            f"【当前病例上下文】\n{context_str}\n\n"
-                            "请基于以上病例信息理解后续问题。"
-                        )
-                    ),
-                ]
+                return (
+                    f"{SYSTEM_PROMPT}\n\n"
+                    f"【当前病例上下文】\n{context_str}\n\n"
+                    "请基于以上病例信息理解后续问题。"
+                )
         except Exception:
             pass
 
-    if not system_messages:
-        system_messages = [SystemMessage(content=SYSTEM_PROMPT)]
+    return SYSTEM_PROMPT
 
-    return system_messages + list(messages)
+
+@dynamic_prompt
+def _case_context_prompt(request: ModelRequest) -> str:
+    """在每轮模型调用前，经 LangChain middleware 注入病例上下文。"""
+    return _build_system_prompt(request.state)
 
 
 # ─── Agent 执行器 ───────────────────────────────────────────
 
 class AgentExecutor:
-    """基于 langchain 1.x 的 Agent 执行器。
+    """基于 LangChain Agent API 的 Agent 执行器。
 
-    使用 create_agent + LangGraph Checkpointer 构建，
-    自动保持多轮对话记忆，底层走 DeepSeek 原生 Function Calling。
+    使用 LangChain create_agent、MartinState 与 dynamic_prompt middleware 构建；
+    LangGraph 在底层自动管理 ReAct 工具路由、State 与 Checkpointer。
     支持在同一会话（thread_id）的多个实例间共享病例上下文。
     """
 
@@ -257,7 +242,7 @@ class AgentExecutor:
             model=llm,
             tools=tools,
             state_schema=MartinState,
-            prompt=_build_prompt,
+            middleware=[_case_context_prompt],
             checkpointer=memory,
         )
 
@@ -398,7 +383,7 @@ class AgentExecutor:
         }
 
 
-# ─── 工厂函数 ───────────────────────────────────────────────
+# ─── Martin Agent 工厂函数 ────────────────────────────────────
 
 def create_agent(
     tools: Optional[List[BaseTool]] = None,
@@ -406,7 +391,7 @@ def create_agent(
     thread_id: Optional[str] = None,
     checkpointer: Optional[BaseCheckpointSaver] = None,
 ) -> AgentExecutor:
-    """创建 Agent 执行器。
+    """创建基于 LangChain Agent API 的 Martin Agent 执行器。
 
     Args:
         tools: 工具列表，默认为六个核心工具：

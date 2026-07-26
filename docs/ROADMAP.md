@@ -25,7 +25,7 @@
 
 ## Agent 架构演进路线
 
-> 当前 Martin 是 **单 Agent + ReAct + Routing** 模式（LangGraph `create_agent` + 6 个工具 + DeepSeek Function Calling）。按照 Anthropic Building Effective Agents 框架，未来从"LLM 选路"逐步升级到"LLM 自主行动"再到"多 Agent 协作"。
+> 当前 Martin 是 **单 Agent + ReAct + Routing** 模式（LangChain `create_agent` + 6 个 LangChain 工具 + DeepSeek Function Calling，底层由 LangGraph 执行）。按照 Anthropic Building Effective Agents 框架，未来从"LLM 选路"逐步升级到"LLM 自主行动"再到"多 Agent 协作"。
 
 ### 📍 当前阶段：单 Agent + ReAct + Routing（v0.4）
 

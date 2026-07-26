@@ -1,6 +1,6 @@
 # Martin 医学AI智能体项目学习指南
 
-> **项目定位**：基于 MONAI + LangChain/LangGraph 的肺部CT结节检测智能体，实现"感知—知识—决策"三层架构的端到端医学AI系统
+> **项目定位**：基于 MONAI、LangChain Agent 编排与 LangGraph 运行时的肺部CT结节检测智能体，实现"感知—知识—决策"三层架构的端到端医学AI系统
 
 ---
 
@@ -17,7 +17,7 @@
                               ▼
 ┌─────────────────────────────────────────────────────────────┐
 │                    Agent Core (决策层)                      │
-│              LangChain/LangGraph + DeepSeek                 │
+│       LangChain create_agent + LangGraph + DeepSeek         │
 │            ┌─────────────────────────────────────────┐      │
 │            │  推理循环: 思考 → 工具调用 → 观察 → 决策  │      │
 │            └─────────────────────────────────────────┘      │
@@ -55,7 +55,7 @@
 #### 2.1.1 Agent执行器 (`martin/agent/agent.py`)
 
 **核心概念**：
-- `AgentExecutor`：基于 LangChain `create_agent` + LangGraph Checkpointer 构建
+- `AgentExecutor`：基于 LangChain `create_agent`、`MartinState`、动态 Prompt middleware 与 Checkpointer 构建
 - `thread_id`：会话标识，同一 thread_id 的多次调用共享对话历史
 - `CaseContext`：病例上下文，跨工具共享的结构化医学数据
 
@@ -381,15 +381,17 @@ martin/agent/agent.py (AgentExecutor)
 
 ## 四、关键技术点总结
 
-### 4.1 LangChain/LangGraph 核心概念
+### 4.1 LangChain / LangGraph 核心概念
 
 | 概念 | 作用 | 项目应用 |
 |------|------|----------|
-| `create_agent` | 创建 Agent 执行器 | `martin/agent/agent.py` |
-| `Checkpointer` | 会话记忆持久化 | SqliteSaver |
-| `@tool` | 工具定义装饰器 | 四个核心工具 |
-| `LCEL` | 声明式链编排 | 报告生成链 |
-| `thread_id` | 会话唯一标识 | 跨调用共享记忆 |
+| `create_agent` | 创建 Agent，并编译到底层 LangGraph 图 | LangChain，`martin/agent/agent.py` |
+| `@dynamic_prompt` | 每轮模型调用前动态注入病例上下文 | LangChain middleware |
+| `MartinState` / `Checkpointer` | 管理状态与会话持久化 | LangGraph / SqliteSaver |
+| `@tool` | 将业务函数定义为模型可调用工具 | LangChain，六个核心工具 |
+| `LCEL` | 声明式报告生成链 | LangChain，`martin/llm/chain.py` |
+| `ChatOpenAI` / RAG 组件 | 模型适配、文档/切分/嵌入/向量库集成 | LangChain 生态 |
+| `thread_id` | 会话唯一标识 | LangGraph checkpoint 跨调用恢复 |
 
 ### 4.2 医学影像处理要点
 

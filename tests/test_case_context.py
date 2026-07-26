@@ -191,7 +191,7 @@ class TestAgentExecutorContext:
         """验证 invoke 时将 case_context 通过 state_schema 传递给 LangGraph agent。
 
         新实现已移除 invoke() 中的 CONTEXT_MESSAGE_PREFIX 消息拼接，
-        改为将 case_context 作为独立字段写入 state，由 _build_prompt 在调用 LLM 前注入。
+        改为将 case_context 作为独立字段写入 state，由 dynamic_prompt middleware 在调用 LLM 前注入。
         """
         mock_get_chat_model.return_value = MagicMock()
 

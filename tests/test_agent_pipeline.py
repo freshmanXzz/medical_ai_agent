@@ -8,8 +8,33 @@ from unittest.mock import patch, MagicMock, PropertyMock
 class TestAgentInitialization:
     """测试 Agent 初始化。"""
 
+    @patch("martin.agent.agent.create_langchain_agent")
+    @patch("martin.agent.agent.get_chat_model")
+    def test_agent_executor_uses_langchain_create_agent(
+        self, mock_get_chat_model, mock_create_langchain_agent
+    ):
+        """Agent 应使用 LangChain 官方工厂，并通过 middleware 注入病例上下文。"""
+        from langgraph.checkpoint.memory import MemorySaver
+
+        from martin.agent.agent import AgentExecutor, MartinState, _case_context_prompt
+
+        mock_get_chat_model.return_value = MagicMock()
+        mock_create_langchain_agent.return_value = MagicMock()
+
+        AgentExecutor(
+            tools=[],
+            verbose=False,
+            thread_id="test-langchain-agent-factory",
+            checkpointer=MemorySaver(),
+        )
+
+        _, kwargs = mock_create_langchain_agent.call_args
+        assert kwargs["state_schema"] is MartinState
+        assert kwargs["middleware"] == [_case_context_prompt]
+        assert kwargs["checkpointer"] is not None
+
     def test_create_agent_with_default_tools(self):
-        """测试使用默认工具创建 Agent。"""
+        """测试使用默认工具创建 LangChain Agent。"""
         from martin.agent.agent import create_agent
 
         agent = create_agent(verbose=False)
@@ -50,7 +75,6 @@ class TestAgentInitialization:
         assert "update_case_context" in tool_names
         assert "upload_to_oss" in tool_names
         assert "download_from_oss" in tool_names
-
 
 class TestAuditLogger:
     """测试审计日志模块。"""

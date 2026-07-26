@@ -50,7 +50,7 @@ Martin 作为一个 Agent，能够自主规划任务、调用工具、引用知�
 
 ```
 AgentExecutor
-├── _agent: LangGraph StateGraph（由 create_agent 创建）
+├── _agent: LangChain Agent（由 create_agent 创建，底层为 LangGraph 图）
 ├── case_context: CaseContext（结构化病例上下文）
 ├── thread_id: str（会话标识）
 └── 日志系统
@@ -149,9 +149,9 @@ format_results() → 带 [知识N] 标注的文本
 
 ### 3.1 框架选型
 
-| 层级 | 框架 | 版本 |
-|------|------|------|
-| Agent 编排 | LangChain + LangGraph | langchain 1.3.12, langgraph 1.2.9 |
+| 层级 | 框架 | 职责 / 版本 |
+|------|------|-------------|
+| Agent 编排 | LangChain create_agent + LangGraph 运行时 | LangChain 构建 Agent、模型、工具与 middleware；LangGraph 管理图、状态与 checkpoint |
 | 深度学习 | PyTorch + MONAI | torch 2.7.1+cu118 |
 | 向量数据库 | ChromaDB | langchain_chroma |
 | 嵌入模型 | BGE-Small-ZH-v1.5 | 本地部署 |

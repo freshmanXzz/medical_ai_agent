@@ -4,9 +4,11 @@
 
 ## 一、整体架构
 
-> 最新的可编辑运行时架构图：[`arch.drawio`](arch.drawio)，对应 SVG：[`architecture.svg`](architecture.svg)。该图以当前 Vue/FastAPI/Agent/RAG/Vision/存储实现为准。
+> 最新的可编辑项目分层架构图：[`arch.drawio`](arch.drawio)，总览 SVG 为 [`architecture.svg`](architecture.svg)，端到端流程图为 [`architecture-flow.svg`](architecture-flow.svg)。两页均以当前 Vue/FastAPI/Agent/RAG/Vision/存储实现为准。
 
-![Martin 运行时架构图](architecture.svg)
+![Martin 项目分层架构图](architecture.svg)
+
+端到端主流程见：[临床数据流图](architecture-flow.svg)。
 
 Martin 采用**分层架构**，从上到下依次为：
 
@@ -49,7 +51,7 @@ Martin 采用**分层架构**，从上到下依次为：
 ```python
 class AgentExecutor:
     def __init__(self, llm, tools, verbose=False, thread_id="default"):
-        self._agent = create_langchain_agent(...)  # LangGraph StateGraph
+        self._agent = create_langchain_agent(...)  # LangChain Agent，底层为 LangGraph 图
         self.case_context = CaseContext()
         self.thread_id = thread_id
         ...
@@ -212,7 +214,7 @@ def get_case_context() -> CaseContext:
 
 | 决策 | 选择 | 原因 |
 |------|------|------|
-| Agent 框架 | LangChain 1.x + LangGraph | 生态成熟，StateGraph 灵活可控 |
+| Agent 框架 | LangChain `create_agent` + LangGraph 运行时 | LangChain 构建 Agent、middleware、模型与工具；LangGraph 管理图、状态、路由与 checkpoint |
 | LLM 接入 | ChatOpenAI 兼容层 | 可切换不同 OpenAI 兼容模型 |
 | 向量库 | ChromaDB 本地 | 轻量、无需服务、本地持久化 |
 | 记忆方案 | 双层（SqliteSaver + CaseContext） | 持久对话历史 + 进程内结构化数据各司其职 |

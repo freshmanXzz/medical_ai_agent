@@ -12,7 +12,7 @@ Martin 是一个开源的医学影像 AI Copilot，面向**呼吸科 / 胸外科
 
 - 👁 **3D 肺结节检测** — 基于 MONAI RetinaNet，支持 NIfTI / MetaImage 格式
 - 🔍 **RAG 循证诊断** — ChromaDB + BGE 本地向量库，引用 Lung-RADS 等权威指南
-- 🤖 **Agent 智能编排** — LangChain 1.x + LangGraph，多工具自主规划与调用
+- 🤖 **Agent 智能编排** — LangChain `create_agent`，多工具自主规划、调用与会话持久化
 - 🧠 **会话级病例上下文** — `CaseContext` 按 `thread_id` 持久化患者信息、影像、结节、知识摘要与临床备注
 - 📄 **多类型报告生成** — brief / detailed / research 三档，LCEL 声明式编排
 - 💾 **会话与病例恢复** — 官方 `SqliteSaver` 保存历史会话；Web“病例记录”可恢复原会话并继续分析、生成报告
@@ -28,9 +28,9 @@ Martin 是一个开源的医学影像 AI Copilot，面向**呼吸科 / 胸外科
 
 ## 🏗 Architecture
 
-**运行时架构图：**下图由当前代码的前端、FastAPI 路由、Agent、RAG、视觉推理与外部服务关系生成；可编辑源文件为 [`docs/arch.drawio`](docs/arch.drawio)。
+**项目分层架构图：**下图概览前端交互、FastAPI 接入、智能体编排、医疗 AI 能力及数据依赖；可编辑源文件为 [`docs/arch.drawio`](docs/arch.drawio)，端到端流程见 [数据流图](docs/architecture-flow.svg)。
 
-![Martin 运行时架构图](docs/architecture.svg)
+![Martin 项目分层架构图](docs/architecture.svg)
 
 **两层记忆架构：**
 
@@ -38,6 +38,8 @@ Martin 是一个开源的医学影像 AI Copilot，面向**呼吸科 / 胸外科
 |------|------|------|
 | 对话记忆 | LangGraph `SqliteSaver` | 保存完整消息历史与 LangGraph checkpoint，支持重启恢复 |
 | 病例记忆 | `CaseContext`（同一 checkpoint 的结构化状态） | 患者信息 / 影像 / 结节 / 知识摘要 / 临床备注 / 检测完成状态 |
+
+**框架职责：** LangChain `create_agent` 作为 Agent 构图入口，并提供 `ChatOpenAI`、`@tool`、动态 Prompt middleware、LCEL 报告链及 RAG 集成；LangGraph 是其底层运行时，负责 ReAct 图、状态、工具路由与 checkpoint。
 
 **Web 工作站信息架构：**
 
@@ -76,7 +78,7 @@ AgentExecutor.invoke()
 
 | Component | Technology |
 |-----------|------------|
-| Agent 框架 | LangChain 1.x + LangGraph |
+| Agent 框架 | LangChain `create_agent` + LangGraph 运行时 |
 | Web 前端 | Vue 3 + Vite + Pinia + Element Plus |
 | Web 后端 | FastAPI + REST + WebSocket |
 | 实时通信 | WebSocket（Agent 工具调用过程推送） |
