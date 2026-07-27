@@ -379,7 +379,7 @@
     </div>
     <pre class="code-block"><span class="comment"># 关键调用关系</span>
 handle_agent_v2()
-  → build_agent(thread_id=session_id, checkpointer=SqliteSaver)
+  → create_agent(thread_id=session_id, checkpointer=SqliteSaver)
   → AgentExecutor.invoke({"input": user_input})
   → create_langchain_agent(...).invoke(
       {"messages": messages},

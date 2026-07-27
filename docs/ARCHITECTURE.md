@@ -20,7 +20,6 @@ Martin 采用**分层架构**，从上到下依次为：
 │              Agent 编排层                         │
 │  martin/agent/                                  │
 │  ├─ agent.py        (AgentExecutor)             │
-│  ├─ agent_builder.py (build_agent)              │
 │  ├─ tools.py        (@tool 工具集)               │
 │  ├─ case_context.py (结构化病例上下文)           │
 │  ├─ prompt.py       (系统提示词)                 │

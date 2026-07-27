@@ -525,7 +525,6 @@ handle_agent_v2()
   -> capture_runtime_output()              # 后台接收 warning / tqdm
   -> get_default_checkpointer()            # data/sessions.sqlite
   -> SessionManager(checkpointer)
-  -> build_agent(thread_id, checkpointer)
   -> create_agent()
   -> AgentExecutor
 ```

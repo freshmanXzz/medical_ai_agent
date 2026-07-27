@@ -239,7 +239,7 @@ def run_info(args):
 
 def handle_agent_legacy(args):
     """处理 agent 命令，支持多轮对话。"""
-    from martin.agent.agent_builder import build_agent
+    from martin.agent.agent import create_agent
     from martin.agent.audit import AuditLogger
 
     # 创建审计日志（session_id 同时作为 langgraph thread_id）
@@ -250,7 +250,7 @@ def handle_agent_legacy(args):
 
     # 创建 Agent（与审计日志共享 session_id，实现多轮记忆持久化）
     print("正在初始化 AI Agent...")
-    agent_executor = build_agent(
+    agent_executor = create_agent(
         verbose=True,
         thread_id=audit_logger.session_id,
     )
@@ -342,7 +342,7 @@ def handle_agent_v2(args):
 
     AppLogger.disable_console_output()
     with capture_runtime_output():
-        from martin.agent.agent_builder import build_agent
+        from martin.agent.agent import create_agent
         from martin.agent.audit import AuditLogger
         from martin.agent.cli_ui import AgentCLI
         from martin.agent.sessions import (
@@ -359,7 +359,7 @@ def handle_agent_v2(args):
     def start_session(session_id=None):
         audit_logger = AuditLogger(session_id=session_id)
         with capture_runtime_output():
-            executor = build_agent(
+            executor = create_agent(
                 verbose=True,
                 thread_id=audit_logger.session_id,
                 checkpointer=checkpointer,

@@ -19,7 +19,6 @@
     )
 """
 
-from martin.agent.agent_builder import build_agent
 from martin.agent.tools import (
     analyze_image,
     download_from_oss,
@@ -36,5 +35,4 @@ __all__ = [
     "update_case_context",
     "upload_to_oss",
     "download_from_oss",
-    "build_agent",
 ]

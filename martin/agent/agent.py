@@ -14,7 +14,7 @@ import os
 from datetime import datetime
 from typing import Any, Dict, List, Optional, Tuple
 
-from langchain.agents import AgentState
+from langchain.agents import AgentState, create_agent as create_langchain_agent
 from langchain.agents.middleware import ModelRequest, dynamic_prompt
 from langchain_core.agents import AgentAction
 from langchain_core.callbacks import BaseCallbackHandler
@@ -238,11 +238,7 @@ class AgentExecutor:
 
         llm = get_chat_model()
 
-        # 在局部作用域直接使用 LangChain 的原始函数名，避免与本模块
-        # 面向调用方保留的 create_agent 工厂函数发生名称冲突。
-        from langchain.agents import create_agent
-
-        self._agent = create_agent(
+        self._agent = create_langchain_agent(
             model=llm,
             tools=tools,
             state_schema=MartinState,

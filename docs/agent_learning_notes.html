@@ -1043,14 +1043,14 @@ Orchestrator ──┤
 <p>对比两个入口，自己看：</p>
 
 <p><strong>CLI 版（martin/__main__.py）：</strong></p>
-<pre>executor = build_agent(thread_id=session_id, checkpointer=checkpointer)
+<pre>executor = create_agent(thread_id=session_id, checkpointer=checkpointer)
 result = executor.invoke({"input": user_input})</pre>
 
 <p><strong>Web 版（api/routers/agent.py）：</strong></p>
 <pre>agent = create_agent(thread_id=session_id, checkpointer=checkpointer, verbose=False)
 result = await asyncio.to_thread(agent.invoke, {"input": final_input})</pre>
 
-<p>唯一的区别：CLI 版用 <code class="inline">build_agent()</code>（多了日志回调），Web 版用 <code class="inline">create_agent()</code>（不需要日志）。核心调用 <code class="inline">agent.invoke()</code> 完全一样。</p>
+<p>CLI 和 Web 都直接使用 <code class="inline">create_agent()</code>。两者仅通过 <code class="inline">verbose</code> 参数选择是否启用详细日志，核心调用 <code class="inline">agent.invoke()</code> 完全一样。</p>
 
 <h3>5.6 关键结论</h3>
 

@@ -43,7 +43,7 @@ Martin 作为一个 Agent，能够自主规划任务、调用工具、引用知�
 ### 2.1 Agent 主入口
 
 - **CLI 入口**：`main.py` 和 `martin/__main__.py`
-- **Agent 构建工厂**：`martin/agent/agent_builder.py` 的 `build_agent()`
+- **Agent 工厂**：`martin/agent/agent.py` 的 `create_agent()`
 - **执行器**：`martin/agent/agent.py` 的 `AgentExecutor`
 
 ### 2.2 Agent Core
