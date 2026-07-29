@@ -193,7 +193,7 @@ minio server ./data/minio --console-address ":9001"
 
 ### 运行效果
 
-**新版临床影像工作站：在中央区域阅览 CT 轴位切片，并结合 AI 发现、病例信息与报告入口完成复核。**
+**新版临床影像工作站：点击左侧“结节 1”，即可自动跳转到对应中心层，并以红色十字线和边界框定位 AI 检测候选；可在中央区域继续进行 CT 轴位复核。**
 
 ![恢复历史病例后的 Martin 临床影像工作站](docs/images/workstation-restored-case.png)
 
@@ -207,9 +207,6 @@ minio server ./data/minio --console-address ":9001"
 
 ![知识库文档管理页面](docs/images/knowledge-document-management.png)
 
-**知识库检索核验：使用 Agent 共用的向量库检索“实性结节 6–8 mm 6–12 个月随访”，展示实际召回来源、相似度与原文片段。**
-
-![知识库检索测试与实际 RAG 召回结果](docs/images/knowledge-retrieval-test.png)
 
 **查看知识库原文（Drawer 展示 Markdown 原文档）：**
 
