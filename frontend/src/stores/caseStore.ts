@@ -12,7 +12,6 @@ export interface PatientInfo {
 
 export interface ImageInfo {
   modality?: string
-  image_path?: string
   filename?: string
   image_name?: string
   [key: string]: any
@@ -76,7 +75,7 @@ export function detectResultFromCaseContext(ctx: CaseContext = {}): DetectResult
   if (ctx.detection_completed !== true && nodules.length === 0) return null
 
   const imageInfo = ctx.image_info ?? {}
-  const image = imageInfo.image_path || imageInfo.filename || imageInfo.image_name || ''
+  const image = imageInfo.filename || imageInfo.image_name || ''
   return {
     image,
     total_nodules: nodules.length,

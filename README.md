@@ -28,8 +28,6 @@ Martin 是一个开源的医学影像 AI Copilot，面向**呼吸科 / 胸外科
 
 ## 🏗 Architecture
 
-**项目分层架构图：**下图概览前端交互、FastAPI 接入、智能体编排、医疗 AI 能力及数据依赖；可编辑源文件为 [`docs/arch.drawio`](docs/arch.drawio)。
-
 ![Martin 项目分层架构图](docs/architecture.svg)
 
 
@@ -116,23 +114,6 @@ export DEEPSEEK_API_KEY="your-api-key"
 export DEEPSEEK_BASE_URL="https://api.deepseek.com/v1"
 ```
 
-### 运行测试
-
-请在安装了项目依赖的 Python / Conda 环境中执行测试。仓库提供 PowerShell 包装脚本；若本机解释器不在脚本默认位置，先通过 `MARTIN_TEST_PYTHON` 指定它：
-
-```powershell
-# 可选：指向当前机器中已安装依赖的 Python 解释器
-$env:MARTIN_TEST_PYTHON = "<absolute-path-to-python.exe>"
-
-# 运行全部测试
-.\scripts\run_tests.ps1
-
-# 只运行 Web API 测试
-.\scripts\run_tests.ps1 tests\test_web_api.py -q
-```
-
-Linux / macOS 可直接在已激活环境中执行 `python -m pytest tests`。维护者的本机路径不属于项目安装前提。
-
 ### 下载模型
 
 1. **MONAI 检测模型**：从 MONAI Model Zoo 下载 `lung_nodule_ct_detection`，放入 `models/vision/`
@@ -212,7 +193,7 @@ minio server ./data/minio --console-address ":9001"
 
 ### 运行效果
 
-**新版临床影像工作站：恢复已检测病例后，直接审阅 6 个结节、知识依据与报告入口。**
+**新版临床影像工作站：在中央区域阅览 CT 轴位切片，并结合 AI 发现、病例信息与报告入口完成复核。**
 
 ![恢复历史病例后的 Martin 临床影像工作站](docs/images/workstation-restored-case.png)
 

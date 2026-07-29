@@ -259,3 +259,27 @@ class TestMinioClient:
 
         client = MinioClient()
         assert client.bucket == "my-custom-bucket"
+
+
+class TestLocalObjectStorageClient:
+    def test_round_trip_keeps_ct_object_key_inside_local_store(self, tmp_path):
+        from martin.utils.oss_client import LocalObjectStorageClient
+
+        source = tmp_path / "source.nii.gz"
+        source.write_bytes(b"synthetic-ct")
+        client = LocalObjectStorageClient(str(tmp_path / "objects"))
+
+        object_name = client.upload_file(str(source))
+        restored = tmp_path / "restored.nii.gz"
+        result = client.download_file(object_name, str(restored))
+
+        assert object_name.startswith("ct/")
+        assert result == str(restored)
+        assert restored.read_bytes() == b"synthetic-ct"
+
+    def test_rejects_path_traversal(self, tmp_path):
+        from martin.utils.oss_client import LocalObjectStorageClient
+
+        client = LocalObjectStorageClient(str(tmp_path / "objects"))
+        with pytest.raises(ValueError, match="无效"):
+            client.download_file("ct/../../secret.nii.gz")

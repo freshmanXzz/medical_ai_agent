@@ -1,0 +1,4 @@
+interface:
+  display_name: "Martin Agent Policy"
+  short_description: "Maintain agent policy, sessions, and safe evidence rules."
+  default_prompt: "Use $martin-agent-policy to safely update Martin agent behavior."

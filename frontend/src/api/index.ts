@@ -19,9 +19,10 @@ export const chatWithAgent = (
   })
 
 // CT 影像文件上传到 OSS（multipart/form-data）
-export function uploadImage(file: File, onUploadProgress?: (progress: number) => void) {
+export function uploadImage(file: File, sessionId: string, onUploadProgress?: (progress: number) => void) {
   const formData = new FormData()
   formData.append('file', file)
+  formData.append('session_id', sessionId)
   return api.post('/image/upload', formData, {
     headers: { 'Content-Type': 'multipart/form-data' },
     timeout: 300000,
@@ -34,8 +35,10 @@ export function uploadImage(file: File, onUploadProgress?: (progress: number) =>
 }
 
 // CT 影像检测
-export const analyzeImage = (imagePath: string, sessionId: string) =>
-  api.post('/image/analyze', { image_path: imagePath, session_id: sessionId })
+export const analyzeImage = (sessionId: string) =>
+  api.post('/image/analyze', {
+    session_id: sessionId,
+  })
 
 // 报告生成
 export const generateReport = (
@@ -57,6 +60,58 @@ export const listSessions = () => api.get('/sessions')
 // 会话详情
 export const getSessionDetail = (threadId: string) =>
   api.get(`/sessions/${encodeURIComponent(threadId)}`)
+
+export interface ViewerWindow {
+  center: number
+  width: number
+}
+
+export interface ViewerDisplayPoint {
+  x: number
+  y: number
+  z: number
+}
+
+export interface ViewerDisplayBox {
+  x_min: number
+  x_max: number
+  y_min: number
+  y_max: number
+  z_min: number
+  z_max: number
+}
+
+export interface ViewerNodule {
+  index: number | null
+  diameter?: number
+  score?: number
+  spatial_status: 'located' | 'unavailable' | 'outside_volume'
+  display_center?: ViewerDisplayPoint
+  display_bbox?: ViewerDisplayBox
+}
+
+export interface ViewerManifest {
+  shape: [number, number, number]
+  axial_slice_count: number
+  default_window: ViewerWindow
+  nodules: ViewerNodule[]
+}
+
+export const getViewerManifest = (threadId: string) =>
+  api.get<ViewerManifest>(`/sessions/${encodeURIComponent(threadId)}/viewer/manifest`)
+
+export function getViewerAxialSliceUrl(
+  threadId: string,
+  sliceIndex: number,
+  windowCenter: number,
+  windowWidth: number,
+) {
+  const query = new URLSearchParams({
+    window_center: String(windowCenter),
+    window_width: String(windowWidth),
+  })
+  return `/api/sessions/${encodeURIComponent(threadId)}/viewer/axial/${sliceIndex}.png?${query}`
+}
 
 // 知识库原文档查看
 export const getKnowledgeDocument = (filename: string) =>

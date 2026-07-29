@@ -7,8 +7,7 @@ from typing import Optional, List, Dict, Any
 # ─── Agent 对话 ────────────────────────────────────────────
 
 class AttachmentInfo(BaseModel):
-    """附件信息模型"""
-    object_key: str = Field(..., description="OSS 对象路径")
+    """仅用于对话展示的附件元数据，不携带存储对象引用。"""
     filename: str = Field(..., description="原始文件名")
     medical_image: bool = Field(default=False, description="是否为医学影像文件")
 
@@ -40,7 +39,6 @@ class ChatResponse(BaseModel):
 
 class DetectRequest(BaseModel):
     """CT 影像检测请求"""
-    image_path: str = Field(..., description="CT 图像文件路径")
     session_id: str = Field(default="default", description="关联的会话 ID")
 
 
@@ -64,9 +62,46 @@ class DetectResponse(BaseModel):
 
 class UploadResponse(BaseModel):
     """影像文件上传响应"""
-    object_name: str = Field(description="OSS 对象名")
-    bucket: str = Field(description="存储 bucket 名称")
     size: int = Field(description="文件大小（字节）")
+    filename: str = Field(description="原始上传文件名")
+
+
+class ViewerWindow(BaseModel):
+    center: float
+    width: float
+
+
+class ViewerDisplayPoint(BaseModel):
+    x: float
+    y: float
+    z: float
+
+
+class ViewerDisplayBox(BaseModel):
+    x_min: float
+    x_max: float
+    y_min: float
+    y_max: float
+    z_min: float
+    z_max: float
+
+
+class ViewerNodule(BaseModel):
+    index: Optional[int] = None
+    diameter: Optional[float] = None
+    score: Optional[float] = None
+    spatial_status: str
+    display_center: Optional[ViewerDisplayPoint] = None
+    display_bbox: Optional[ViewerDisplayBox] = None
+
+
+class ViewerManifestResponse(BaseModel):
+    """不含路径或对象键的病例阅片元数据。"""
+
+    shape: List[int]
+    axial_slice_count: int
+    default_window: ViewerWindow
+    nodules: List[ViewerNodule] = Field(default_factory=list)
 
 
 # ─── 知识库 ────────────────────────────────────────────────

@@ -1,0 +1,4 @@
+interface:
+  display_name: "Martin Vision Pipeline"
+  short_description: "Maintain imaging upload and MONAI detection data contracts."
+  default_prompt: "Use $martin-vision-pipeline to update Martin medical image analysis safely."

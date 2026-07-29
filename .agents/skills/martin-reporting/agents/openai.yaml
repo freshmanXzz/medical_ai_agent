@@ -1,0 +1,4 @@
+interface:
+  display_name: "Martin Reporting"
+  short_description: "Maintain evidence-based imaging reports and fallbacks."
+  default_prompt: "Use $martin-reporting to update Martin report generation safely."

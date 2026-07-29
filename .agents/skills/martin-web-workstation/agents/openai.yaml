@@ -1,0 +1,4 @@
+interface:
+  display_name: "Martin Web Workstation"
+  short_description: "Maintain workstation, session, and real-time chat workflows."
+  default_prompt: "Use $martin-web-workstation to update Martin web workstation behavior safely."

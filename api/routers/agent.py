@@ -21,6 +21,10 @@ from api.models import (
 logger = logging.getLogger(__name__)
 router = APIRouter(tags=["Agent 对话"])
 
+MODEL_UNAVAILABLE_MESSAGE = (
+    "模型服务不可达，请检查网络连接、DEEPSEEK_BASE_URL 与服务端访问权限后重试。"
+)
+
 # 医学影像文件扩展名
 _MEDICAL_IMAGE_EXTENSIONS = (".nii", ".nii.gz", ".dcm")
 
@@ -31,8 +35,26 @@ def _is_medical_image(filename: str) -> bool:
     return any(filename_lower.endswith(ext) for ext in _MEDICAL_IMAGE_EXTENSIONS)
 
 
+def _agent_failure_detail(result: dict) -> str | None:
+    """将 Agent 内部异常转换为不会泄露底层连接信息的用户提示。"""
+    output = str(result.get("output", ""))
+    if not output.startswith("错误: Agent 执行失败"):
+        return None
+    if "connection error" in output.lower() or "apiconnectionerror" in output.lower():
+        return MODEL_UNAVAILABLE_MESSAGE
+    return "Agent 执行失败，请稍后重试。"
+
+
+def _public_case_context(case_context) -> dict:
+    """删除仅供服务端使用的影像对象引用后再发送到浏览器。"""
+    try:
+        return case_context.to_public_dict()
+    except Exception:
+        return {}
+
+
 def _process_attachment(agent, attachment: AttachmentInfo) -> str:
-    """处理附件，注入 CaseContext 并返回引导消息
+    """处理附件展示信息，不接受客户端传入的对象引用。
 
     Args:
         agent: AgentExecutor 实例
@@ -42,18 +64,11 @@ def _process_attachment(agent, attachment: AttachmentInfo) -> str:
         引导 Agent 的消息前缀
     """
     if attachment.medical_image or _is_medical_image(attachment.filename):
-        # 注入影像信息到 CaseContext
-        agent.case_context.image_info = {
-            "modality": "CT",
-            "image_path": attachment.object_key,
-            "filename": attachment.filename,
-        }
         return (
-            f"已上传医学影像文件: {attachment.filename}（OSS路径: {attachment.object_key}）。"
-            f"请调用 analyze_image 工具进行影像分析。"
+            f"已选择医学影像文件: {attachment.filename}。"
+            "请在影像分析工作站上传文件后再进行检测。"
         )
-    else:
-        return f"已上传文件: {attachment.filename}（OSS路径: {attachment.object_key}）。"
+    return f"已选择附件: {attachment.filename}。"
 
 
 @router.post("/agent/chat", response_model=ChatResponse)
@@ -83,6 +98,13 @@ def agent_chat(request: ChatRequest):
         from martin.agent.case_context import CaseContext
 
         restored_context = CaseContext.from_dict(request.case_context)
+        # 浏览器上下文经过脱敏，不能因此覆盖 checkpoint 中供阅片和分析使用的
+        # MinIO 对象引用；没有已保存来源时也不能采纳客户端伪造的影像路径。
+        existing_image_info = getattr(agent.case_context, "image_info", {})
+        if isinstance(existing_image_info, dict) and existing_image_info.get("source_type") == "minio_object":
+            restored_context.image_info = dict(existing_image_info)
+        else:
+            restored_context.image_info = CaseContext().image_info
         agent.case_context = restored_context
 
     # 处理附件：注入影像信息并生成引导消息
@@ -101,8 +123,9 @@ def agent_chat(request: ChatRequest):
     except Exception as e:
         audit_logger.log_agent_error(str(e))
         raise HTTPException(status_code=502, detail="Agent 执行失败，请稍后重试。") from e
-    if str(result.get("output", "")).startswith("错误: Agent 执行失败"):
-        raise HTTPException(status_code=502, detail="Agent 执行失败，请稍后重试。")
+    failure_detail = _agent_failure_detail(result)
+    if failure_detail:
+        raise HTTPException(status_code=502, detail=failure_detail)
 
     # 审计日志：记录工具调用
     for action, output in result.get("intermediate_steps", []):
@@ -128,11 +151,7 @@ def agent_chat(request: ChatRequest):
             ))
 
     # 获取当前病例上下文
-    case_context = {}
-    try:
-        case_context = agent.case_context.to_dict()
-    except Exception:
-        pass
+    case_context = _public_case_context(agent.case_context)
 
     return ChatResponse(
         output=result.get("output", ""),
@@ -217,6 +236,14 @@ async def agent_websocket(websocket: WebSocket, session_id: str):
 
                 result = await asyncio.to_thread(agent.invoke, {"input": final_input})
 
+                failure_detail = _agent_failure_detail(result)
+                if failure_detail:
+                    await websocket.send_json(WsStatusMessage(
+                        type="error",
+                        content=failure_detail,
+                    ).model_dump())
+                    continue
+
                 # 审计日志：记录工具调用
                 final_output = result.get("output", "")
                 for action, output in result.get("intermediate_steps", []):
@@ -249,7 +276,7 @@ async def agent_websocket(websocket: WebSocket, session_id: str):
 
                 # 推送病例上下文更新
                 try:
-                    ctx = agent.case_context.to_dict()
+                    ctx = _public_case_context(agent.case_context)
                     await websocket.send_json(WsStatusMessage(
                         type="case_context",
                         content=json.dumps({"case_context": ctx}, ensure_ascii=False),

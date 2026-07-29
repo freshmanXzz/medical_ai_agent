@@ -56,7 +56,7 @@ export class AgentWebSocket {
     })
   }
 
-  send(message: string, attachment?: { object_key: string; filename: string; medical_image: boolean }) {
+  send(message: string, attachment?: { filename: string; medical_image: boolean }) {
     const payload: any = { message }
     if (attachment) {
       payload.attachment = attachment
@@ -95,6 +95,12 @@ export class AgentWebSocket {
   onCaseContext(handler: (data: WsStatusMessage) => void): void {
     this.handlers.push((msg) => {
       if (msg.type === 'case_context') handler(msg)
+    })
+  }
+
+  onError(handler: (data: WsStatusMessage) => void): void {
+    this.handlers.push((msg) => {
+      if (msg.type === 'error') handler(msg)
     })
   }
 

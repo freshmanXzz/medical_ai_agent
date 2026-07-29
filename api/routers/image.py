@@ -6,9 +6,15 @@ import re
 import tempfile
 from pathlib import Path
 
-from fastapi import APIRouter, HTTPException, UploadFile, File
+from fastapi import APIRouter, HTTPException, UploadFile, File, Form, Query, Response
 
-from api.models import DetectRequest, DetectResponse, NoduleInfo, UploadResponse
+from api.models import (
+    DetectRequest,
+    DetectResponse,
+    NoduleInfo,
+    UploadResponse,
+    ViewerManifestResponse,
+)
 
 logger = logging.getLogger(__name__)
 router = APIRouter(tags=["影像检测"])
@@ -23,43 +29,32 @@ def _is_allowed_filename(filename: str) -> bool:
     return lower.endswith(_ALLOWED_EXTENSIONS)
 
 
-def _resolve_image_path(image_path: str) -> Path:
-    """解析本地影像文件路径，兼容 OSS 对象名。
+def _is_safe_ct_object_name(value: object) -> bool:
+    """仅接受上传接口生成的单层 CT 对象键。"""
+    return (
+        isinstance(value, str)
+        and value.startswith("ct/")
+        and ".." not in value
+        and "\\" not in value
+        and value.count("/") == 1
+    )
 
-    当输入为 OSS 路径时，先下载到临时目录再返回本地路径。
-    """
-    from martin.utils.oss_client import is_oss_path, parse_oss_path, get_oss_client
 
-    # OSS 路径：下载到临时目录
-    if is_oss_path(image_path):
-        logger.info("检测到 OSS 路径，开始下载: %s", image_path)
-        _, object_name = parse_oss_path(image_path)
-        try:
-            client = get_oss_client()
-            local_path = client.download_file(object_name)
-            return Path(local_path)
-        except Exception as e:
-            logger.error("从 OSS 下载文件失败: %s", e, exc_info=True)
-            raise HTTPException(
-                status_code=500,
-                detail=f"从 OSS 下载文件失败: {e}",
-            )
+def _create_session_agent(session_id: str):
+    """用同一会话的 checkpoint 保存和读取服务端影像来源。"""
+    from martin.agent.agent import create_agent
+    from martin.agent.sessions import get_default_checkpointer
 
-    # 本地路径解析
-    path = Path(image_path).expanduser()
-    if not path.is_absolute():
-        path = Path(__file__).resolve().parents[2] / path
-    path = path.resolve()
-    if not path.is_file():
-        raise HTTPException(status_code=404, detail=f"图像文件不存在: {image_path}")
-    if not _is_allowed_filename(path.name):
-        raise HTTPException(status_code=400, detail="仅支持 .nii 或 .nii.gz CT 图像")
-    return path
+    return create_agent(
+        thread_id=session_id,
+        checkpointer=get_default_checkpointer(),
+        verbose=False,
+    )
 
 
 @router.post("/image/upload", response_model=UploadResponse)
-def upload_ct_image(file: UploadFile = File(...)):
-    """上传 CT 影像文件到 OSS，返回对象名。"""
+def upload_ct_image(file: UploadFile = File(...), session_id: str = Form(...)):
+    """上传 CT 影像并将对象引用仅保存到指定会话。"""
     if not _is_allowed_filename(file.filename or ""):
         raise HTTPException(
             status_code=400,
@@ -84,24 +79,25 @@ def upload_ct_image(file: UploadFile = File(...)):
         client = get_oss_client()
         object_name = client.upload_file(tmp_path)
 
-        logger.info(
-            "影像文件上传成功: %s → %s/%s, %d bytes",
-            file.filename,
-            client.bucket,
-            object_name,
-            file_size,
-        )
+        if not _is_safe_ct_object_name(object_name):
+            logger.error("上传接口返回了不安全的 CT 对象引用")
+            raise HTTPException(status_code=500, detail="影像存储失败，请重新上传。")
+
+        agent = _create_session_agent(session_id)
+        agent.case_context.set_image_source(object_name, file.filename or "")
+        agent.save_case_context()
+
+        logger.info("影像文件上传成功: %s, %d bytes", file.filename, file_size)
 
         return UploadResponse(
-            object_name=object_name,
-            bucket=client.bucket,
             size=file_size,
+            filename=file.filename or "",
         )
     except HTTPException:
         raise
     except Exception as e:
         logger.error("影像文件上传失败: %s", e, exc_info=True)
-        raise HTTPException(status_code=500, detail=f"上传失败: {e}")
+        raise HTTPException(status_code=500, detail="影像上传失败，请检查本地 MinIO 服务后重试。") from e
     finally:
         if os.path.exists(tmp_path):
             os.remove(tmp_path)
@@ -109,36 +105,32 @@ def upload_ct_image(file: UploadFile = File(...)):
 
 @router.post("/image/analyze", response_model=DetectResponse)
 def analyze_ct_image(request: DetectRequest):
-    """检测 CT 图像，并将结果绑定到当前 Agent 会话。
-
-    支持本地路径和 OSS 对象名作为输入。OSS 路径会自动下载到临时目录。
-    """
-    from martin.utils.oss_client import is_oss_path
-
-    resolved_path = _resolve_image_path(request.image_path)
-    is_from_oss = is_oss_path(request.image_path)
-
-    from martin.agent.agent import create_agent
-    from martin.agent.sessions import get_default_checkpointer
+    """仅分析该会话已保存的受控 MinIO 影像。"""
     from martin.agent.tools import analyze_image, reset_case_context, set_case_context
 
-    # 创建 Agent 实例，从 Checkpointer state 恢复 CaseContext
-    agent = create_agent(
-        thread_id=request.session_id,
-        checkpointer=get_default_checkpointer(),
-        verbose=False,
-    )
+    agent = _create_session_agent(request.session_id)
     case_context = agent.case_context
+    image_info = case_context.image_info
+    object_name = image_info.get("object_name")
+    if image_info.get("source_type") != "minio_object" or not _is_safe_ct_object_name(object_name):
+        raise HTTPException(status_code=409, detail="当前会话没有可分析的影像，请先上传 NIfTI 文件。")
+
+    try:
+        from martin.utils.oss_client import get_oss_client
+
+        resolved_path = Path(get_oss_client().download_file(object_name))
+    except Exception as exc:
+        logger.error("分析前下载会话影像失败: %s", exc, exc_info=True)
+        raise HTTPException(status_code=502, detail="影像读取失败，请检查本地 MinIO 服务后重试。") from exc
+
     token = set_case_context(case_context)
     try:
         raw_text = analyze_image.invoke({"image_path": str(resolved_path)})
     finally:
         reset_case_context(token)
-        # 清理 OSS 下载的临时文件
-        if is_from_oss and os.path.exists(resolved_path):
+        if os.path.exists(resolved_path):
             try:
                 os.remove(str(resolved_path))
-                logger.info("已清理临时下载文件: %s", resolved_path)
             except OSError as e:
                 logger.warning("清理临时文件失败: %s", e)
 
@@ -181,9 +173,54 @@ def analyze_ct_image(request: DetectRequest):
         ))
 
     return DetectResponse(
-        image=request.image_path,
+        image=case_context.image_info.get("filename") or case_context.image_info.get("image_name") or "",
         total_nodules=total,
         nodules=nodules,
         raw_text=raw_text,
-        case_context=case_context.to_dict(),
+        case_context=case_context.to_public_dict(),
+    )
+
+
+def _viewer_error(exc: Exception) -> HTTPException:
+    """将影像加载错误转换为不含路径和对象键的 API 错误。"""
+    from martin.vision.viewer import ViewerStudyError
+
+    if isinstance(exc, ViewerStudyError):
+        return HTTPException(status_code=404, detail=str(exc))
+    logger.error("阅片接口失败: %s", exc, exc_info=True)
+    return HTTPException(status_code=500, detail="阅片影像处理失败，请稍后重试。")
+
+
+@router.get(
+    "/sessions/{thread_id}/viewer/manifest",
+    response_model=ViewerManifestResponse,
+)
+def get_viewer_manifest(thread_id: str):
+    """返回当前会话的轴位阅片元数据，不接受影像路径或对象键。"""
+    from martin.vision.viewer import viewer_manifest
+
+    try:
+        return viewer_manifest(thread_id)
+    except Exception as exc:
+        raise _viewer_error(exc) from exc
+
+
+@router.get("/sessions/{thread_id}/viewer/axial/{slice_index}.png")
+def get_viewer_axial_slice(
+    thread_id: str,
+    slice_index: int,
+    window_center: float = Query(default=-600.0, ge=-1500.0, le=3000.0),
+    window_width: float = Query(default=1500.0, ge=1.0, le=5000.0),
+):
+    """渲染一张病例轴位 PNG；客户端不能控制影像来源。"""
+    from martin.vision.viewer import viewer_slice
+
+    try:
+        content = viewer_slice(thread_id, slice_index, window_center, window_width)
+    except Exception as exc:
+        raise _viewer_error(exc) from exc
+    return Response(
+        content=content,
+        media_type="image/png",
+        headers={"Cache-Control": "no-store"},
     )

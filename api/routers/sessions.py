@@ -54,9 +54,12 @@ def get_session_detail(thread_id: str):
         else ""
     )
     
+    from martin.agent.case_context import CaseContext
+
+    public_context = CaseContext.from_dict(case_context).to_public_dict() if case_context else {}
     return SessionDetailResponse(
         thread_id=thread_id,
         title=messages[0].content[:48] if messages else (fallback_title or "未命名会话"),
         messages=[{"role": m.role, "content": m.content} for m in messages],
-        case_context=case_context,
+        case_context=public_context,
     )

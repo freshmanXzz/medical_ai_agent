@@ -28,6 +28,10 @@ class CaseContext:
             "modality": "胸部CT",
             "image_path": None,
             "image_name": None,
+            # 仅保存服务端可解析的对象引用；前端阅片接口不会接收路径或对象键。
+            "source_type": None,
+            "object_name": None,
+            "filename": None,
         }
         self.nodules: list[dict[str, Any]] = []
         # ``nodules == []`` 既可能表示“尚未检测”，也可能表示“检测完成但未发现
@@ -55,8 +59,14 @@ class CaseContext:
                 ``nodules`` 等字段。
         """
         image_raw = detection_result.get("image")
-        self.image_info["image_path"] = image_raw
-        self.image_info["image_name"] = os.path.basename(image_raw) if image_raw else None
+        # 分析时使用的下载临时路径不能覆盖上传接口保存的稳定对象引用。
+        if self.image_info.get("source_type") == "minio_object" and self.image_info.get("object_name"):
+            self.image_info["image_path"] = self.image_info["object_name"]
+            if not self.image_info.get("image_name"):
+                self.image_info["image_name"] = os.path.basename(image_raw) if image_raw else None
+        else:
+            self.image_info["image_path"] = image_raw
+            self.image_info["image_name"] = os.path.basename(image_raw) if image_raw else None
 
         # 若检测结果包含结节列表则保存，否则重置为空列表
         raw_nodules = detection_result.get("nodules")
@@ -64,6 +74,37 @@ class CaseContext:
         self.detection_completed = True
 
         self._touch()
+
+    def set_image_source(self, object_name: str, filename: str | None = None) -> None:
+        """保存当前病例可恢复的 MinIO 影像来源。
+
+        ``image_path`` 保留为兼容报告和旧调用方的字段，但其值也只保留对象键，
+        不记录服务端临时路径或用户设备路径。
+        """
+        if not isinstance(object_name, str) or not object_name.startswith("ct/"):
+            return
+        self.image_info.update(
+            {
+                "source_type": "minio_object",
+                "object_name": object_name,
+                "image_path": object_name,
+                "image_name": filename or self.image_info.get("image_name"),
+                "filename": filename or self.image_info.get("filename"),
+            }
+        )
+        # 新上传文件不能继续展示上一病例的检测结果。
+        self.nodules = []
+        self.detection_completed = False
+        self._touch()
+
+    def to_public_dict(self) -> dict[str, Any]:
+        """返回可发送到浏览器的病例上下文，不含服务端影像引用。"""
+        data = self.to_dict()
+        image_info = data.get("image_info")
+        if isinstance(image_info, dict):
+            for key in ("object_name", "image_path", "source_type"):
+                image_info.pop(key, None)
+        return data
 
     def update_patient_info(self, updates: dict) -> None:
         """更新患者信息字段，仅更新已存在的键。
@@ -233,10 +274,9 @@ class CaseContext:
         # 影像信息段落
         lines.append("【影像信息】")
         lines.append(f" modality：{self.image_info.get('modality', '胸部CT')}")
-        if self.image_info.get("image_name"):
-            lines.append(f" 影像名称：{self.image_info['image_name']}")
-        if self.image_info.get("image_path"):
-            lines.append(f" 影像路径：{self.image_info['image_path']}")
+        display_name = self.image_info.get("filename") or self.image_info.get("image_name")
+        if display_name:
+            lines.append(f" 影像名称：{display_name}")
         lines.append("")
 
         # 结节摘要段落

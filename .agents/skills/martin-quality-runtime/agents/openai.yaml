@@ -1,0 +1,4 @@
+interface:
+  display_name: "Martin Quality Runtime"
+  short_description: "Maintain tests, builds, privacy checks, and release gates."
+  default_prompt: "Use $martin-quality-runtime to validate Martin changes safely."

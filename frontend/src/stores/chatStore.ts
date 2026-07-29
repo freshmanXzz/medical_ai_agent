@@ -23,7 +23,6 @@ export interface TimelineEvent {
 }
 
 export interface AttachmentInfo {
-  object_key: string
   filename: string
   medical_image: boolean
 }
@@ -120,6 +119,12 @@ export const useChatStore = defineStore('chat', () => {
           resolve()
         })
 
+        ws.onError((data) => {
+          messages.value.push({ role: 'assistant', content: data.content })
+          clearTimeout(timeout)
+          resolve()
+        })
+
         ws.connect()
           .then(() => {
             ws.send(
@@ -152,7 +157,7 @@ export const useChatStore = defineStore('chat', () => {
         }
         return res.data
       } catch (restError: any) {
-        error.value = restError.message || '发送消息失败'
+        error.value = restError.response?.data?.detail || restError.message || '发送消息失败'
         messages.value.push({ role: 'assistant', content: `错误: ${error.value}` })
       }
     } finally {

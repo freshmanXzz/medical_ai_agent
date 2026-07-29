@@ -108,6 +108,22 @@ class LangChainConfig:
         """是否使用 HTTPS 连接 MinIO。"""
         return os.environ.get("MINIO_SECURE", "false").lower() == "true"
 
+    @property
+    def local_object_storage_dir(self) -> str:
+        """开发环境 MinIO 不可用时使用的本地对象存储目录。"""
+        return os.environ.get(
+            "MARTIN_LOCAL_OBJECT_STORAGE_DIR",
+            str(self.project_root / "data" / "local_object_store"),
+        )
+
+    @property
+    def allow_local_object_storage_fallback(self) -> bool:
+        """仅本机默认允许 MinIO 不可达时回退到本地对象存储。"""
+        configured = os.environ.get("MARTIN_LOCAL_OBJECT_STORAGE_FALLBACK")
+        if configured is not None:
+            return configured.lower() == "true"
+        return self.minio_endpoint.split(":", 1)[0] in {"localhost", "127.0.0.1"}
+
     # ─── 文本切分 ────────────────────────────────────────────
     @property
     def chunk_size(self) -> int:

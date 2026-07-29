@@ -46,7 +46,7 @@
             :key="nodule.index"
             type="button"
             :class="['finding-item', { 'is-selected': selectedNoduleIndex === nodule.index }]"
-            @click="selectedNoduleIndex = nodule.index"
+            @click="selectNodule(nodule.index)"
           >
             <span class="finding-index">{{ String(nodule.index).padStart(2, '0') }}</span>
             <span class="finding-copy"><strong>结节 {{ nodule.index }}</strong><small>{{ formatDiameter(nodule.diameter) }} · 置信度 {{ formatScore(nodule.score) }}</small></span>
@@ -56,28 +56,31 @@
       </aside>
 
       <section class="analysis-stage" aria-label="影像分析画布">
-        <div class="stage-toolbar">
-          <div><span class="stage-kicker">ANALYSIS CANVAS</span><strong>影像分析区</strong></div>
-          <span class="canvas-note">当前版本展示 AI 分析状态与结构化发现</span>
-        </div>
-
-        <div class="analysis-canvas">
-          <div class="canvas-grid" />
-          <template v-if="currentFile">
-            <div class="study-stamp"><span>CT</span><strong>{{ currentFile.name }}</strong><small>{{ formatFileSize(currentFile.size) }}</small></div>
-            <div v-if="currentFile.status === 'analyzing'" class="canvas-state"><el-icon class="is-loading"><Loading /></el-icon><strong>Martin 正在分析影像</strong><span>正在执行结节检测；大型 CT 通常需要数分钟。</span></div>
-            <div v-else-if="currentFile.status === 'error'" class="canvas-state canvas-state--error"><el-icon><CircleCloseFilled /></el-icon><strong>影像分析未完成</strong><span>{{ analysisError || '请检查文件格式和本机服务后重新上传。' }}</span></div>
-            <div v-else-if="selectedNodule" class="selected-finding-card">
-              <span>SELECTED FINDING</span><strong>结节 {{ selectedNodule.index }}</strong>
-              <div class="selected-measures"><b>{{ formatDiameter(selectedNodule.diameter) }}</b><small>最大直径</small><b>{{ formatScore(selectedNodule.score) }}</b><small>AI 置信度</small></div>
-              <p v-if="selectedNodule.center">坐标：{{ formatPoint(selectedNodule.center) }}</p>
-            </div>
-            <div v-else class="canvas-state"><el-icon><CircleCheckFilled /></el-icon><strong>影像分析已准备完成</strong><span>从左侧选择结节，查看诊断信息链。</span></div>
-          </template>
-          <div v-else class="canvas-empty"><el-icon><Picture /></el-icon><strong>等待 CT 影像</strong><span>从左侧上传 .nii 或 .nii.gz 文件开始分析。</span></div>
-        </div>
-
-        <div class="stage-footer"><span>影像渲染与切片定位将在后续阅片能力中提供</span><span>{{ currentFile ? analysisLabel : '尚未加载检查' }}</span></div>
+        <CtAxialViewer
+          v-if="viewerReady"
+          :thread-id="chatStore.sessionId"
+          :selected-nodule-index="selectedNoduleIndex"
+          :selection-request-id="selectionRequestId"
+          :show-finding-panel="false"
+          @select-nodule="selectNodule"
+        />
+        <template v-else>
+          <div class="stage-toolbar">
+            <div><span class="stage-kicker">ANALYSIS CANVAS</span><strong>影像分析区</strong></div>
+            <span class="canvas-note">等待可供阅片的 CT 影像</span>
+          </div>
+          <div class="analysis-canvas">
+            <div class="canvas-grid" />
+            <template v-if="currentFile">
+              <div class="study-stamp"><span>CT</span><strong>{{ currentFile.name }}</strong><small>{{ formatFileSize(currentFile.size) }}</small></div>
+              <div v-if="currentFile.status === 'analyzing'" class="canvas-state"><el-icon class="is-loading"><Loading /></el-icon><strong>Martin 正在分析影像</strong><span>正在执行结节检测；大型 CT 通常需要数分钟。</span></div>
+              <div v-else-if="currentFile.status === 'error'" class="canvas-state canvas-state--error"><el-icon><CircleCloseFilled /></el-icon><strong>影像分析未完成</strong><span>{{ analysisError || '请检查文件格式和本机服务后重新上传。' }}</span></div>
+              <div v-else class="canvas-state"><el-icon><CircleCheckFilled /></el-icon><strong>影像已上传</strong><span>等待分析结果以打开轴位阅片。</span></div>
+            </template>
+            <div v-else class="canvas-empty"><el-icon><Picture /></el-icon><strong>等待 CT 影像</strong><span>从左侧上传 .nii 或 .nii.gz 文件开始分析。</span></div>
+          </div>
+          <div class="stage-footer"><span>{{ currentFile?.status === 'done' ? '分析完成，可打开独立轴位阅片' : '上传与检测完成后可进行轴位辅助阅片' }}</span><span>{{ currentFile ? analysisLabel : '尚未加载检查' }}</span></div>
+        </template>
       </section>
 
       <aside class="diagnostic-rail">
@@ -123,6 +126,7 @@ import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { ChatDotRound, CircleCheckFilled, CircleCloseFilled, Loading, Paperclip, Picture } from '@element-plus/icons-vue'
 import type { UploadFile } from 'element-plus'
 import AgentTimeline from '../components/AgentTimeline.vue'
+import CtAxialViewer from '../components/CtAxialViewer.vue'
 import ImageUploader from '../components/ImageUploader.vue'
 import KnowledgeDocumentDrawer from '../components/KnowledgeDocumentDrawer.vue'
 import KnowledgeSummaryPanel from '../components/KnowledgeSummaryPanel.vue'
@@ -150,6 +154,7 @@ const analysisError = computed({
 })
 const inputMessage = ref('')
 const selectedNoduleIndex = ref<number | null>(null)
+const selectionRequestId = ref(0)
 const copilotOpen = ref(false)
 const compactViewport = ref(false)
 const chatContainer = ref<HTMLElement | null>(null)
@@ -162,6 +167,7 @@ const selectedNodule = computed(() => noduleList.value.find((item) => item.index
 const patientLabel = computed(() => { const info = caseStore.caseContext?.patient_info; if (!info) return '未录入患者风险信息'; return [info.gender, info.age ? `${info.age} 岁` : ''].filter(Boolean).join(' · ') || '患者信息待完善' })
 const analysisLabel = computed(() => currentFile.value?.status === 'analyzing' ? '分析中' : currentFile.value?.status === 'done' ? '分析完成' : currentFile.value?.status === 'error' ? '分析失败' : currentFile.value ? '影像已加载' : '未加载影像')
 const analysisTagType = computed(() => currentFile.value?.status === 'analyzing' ? 'warning' : currentFile.value?.status === 'done' ? 'success' : currentFile.value?.status === 'error' ? 'danger' : 'info')
+const viewerReady = computed(() => currentFile.value?.status === 'done' && Boolean(chatStore.sessionId))
 const copilotDirection = computed(() => compactViewport.value ? 'btt' : 'rtl')
 const copilotSize = computed(() => compactViewport.value ? '78vh' : 'min(430px, 38vw)')
 
@@ -176,9 +182,9 @@ async function handleFileUpload(file: File) {
   try {
     analysisError.value = ''
     currentFile.value = { name: file.name, size: file.size, status: 'uploading' }; uploadProgress.value = 0
-    const response = await uploadImage(file, (progress) => { uploadProgress.value = progress })
+    await uploadImage(file, chatStore.sessionId, (progress) => { uploadProgress.value = progress })
     currentFile.value = { name: file.name, size: file.size, status: 'analyzing' }
-    const detection = await analyzeImage(response.data.object_name, chatStore.sessionId)
+    const detection = await analyzeImage(chatStore.sessionId)
     caseStore.detectResult = detection.data
     caseStore.updateCaseContext(detection.data.case_context)
     currentFile.value = { name: file.name, size: file.size, status: 'done' }
@@ -194,6 +200,10 @@ async function handleFileUpload(file: File) {
   }
 }
 function clearSelectedFile() { selectedFile.value = null }
+function selectNodule(index: number) {
+  selectedNoduleIndex.value = index
+  selectionRequestId.value += 1
+}
 async function handleSend() { if (!inputMessage.value.trim() || chatStore.loading) return; const message = inputMessage.value; inputMessage.value = ''; await chatStore.sendMessage(message, caseStore.caseContext as Record<string, any>) }
 function handleViewOriginal(filename: string) { docDrawerFilename.value = filename; docDrawerVisible.value = true }
 function formatDiameter(value: number) { return Number.isFinite(value) ? `${value.toFixed(1)} mm` : '--' }

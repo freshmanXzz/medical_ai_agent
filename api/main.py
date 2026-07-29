@@ -14,8 +14,10 @@ from starlette.exceptions import HTTPException as StarletteHTTPException
 async def lifespan(_: FastAPI):
     yield
     from martin.agent.sessions import close_default_checkpointer
+    from martin.vision.viewer import viewer_study_cache
 
     close_default_checkpointer()
+    viewer_study_cache.close()
 
 
 app = FastAPI(

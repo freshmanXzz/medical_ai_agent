@@ -64,6 +64,30 @@ class TestCaseContext:
         assert ctx.nodules[1]["score"] == 0.75
         assert ctx.is_empty() is False
 
+    def test_image_source_round_trips_without_local_path(self):
+        """病例恢复必须保留可阅片对象键，而不是检测期临时文件路径。"""
+        ctx = CaseContext()
+        ctx.update_from_detection({"image": "temporary-download.nii.gz", "nodules": []})
+        ctx.set_image_source("ct/abc123.nii.gz", "patient-study.nii.gz")
+
+        restored = CaseContext.from_dict(ctx.to_dict())
+        assert restored.image_info["source_type"] == "minio_object"
+        assert restored.image_info["object_name"] == "ct/abc123.nii.gz"
+        assert restored.image_info["filename"] == "patient-study.nii.gz"
+        assert restored.image_info["image_path"] == "ct/abc123.nii.gz"
+
+    def test_public_context_hides_server_side_image_reference(self):
+        ctx = CaseContext()
+        ctx.set_image_source("ct/abc123.nii.gz", "patient-study.nii.gz")
+
+        public = ctx.to_public_dict()
+        assert public["image_info"]["filename"] == "patient-study.nii.gz"
+        assert "object_name" not in public["image_info"]
+        assert "image_path" not in public["image_info"]
+        assert "source_type" not in public["image_info"]
+
+        assert "ct/abc123.nii.gz" not in ctx.to_context_string()
+
     def test_detection_completed_round_trip_and_legacy_restore(self):
         """检测完成状态应持久化，旧会话含结节时仍可恢复为已检测。"""
         ctx = CaseContext()

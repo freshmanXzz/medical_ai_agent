@@ -6,10 +6,11 @@
 
 import logging
 import os
+import shutil
 import tempfile
 import uuid
 from pathlib import Path
-from typing import Optional
+from typing import Optional, Protocol
 
 from minio import Minio
 from minio.error import S3Error
@@ -19,7 +20,18 @@ from martin.config import config
 logger = logging.getLogger(__name__)
 
 # 模块级单例缓存
-_client_instance: Optional["MinioClient"] = None
+_client_instance: Optional["ObjectStorageClient"] = None
+
+
+class ObjectStorageClient(Protocol):
+    """MinIO 与开发环境本地存储共享的最小接口。"""
+
+    def upload_file(self, local_path: str, object_name: str = "") -> str: ...
+
+    def download_file(self, object_name: str, local_path: str = "") -> str: ...
+
+    @property
+    def bucket(self) -> str: ...
 
 
 def is_oss_path(path: str) -> bool:
@@ -178,8 +190,57 @@ class MinioClient:
         return self._bucket
 
 
-def get_oss_client() -> MinioClient:
-    """获取 MinioClient 单例实例。
+class LocalObjectStorageClient:
+    """仅供本机开发的对象存储回退，不替代生产 MinIO。"""
+
+    def __init__(self, storage_dir: str):
+        self._storage_dir = Path(storage_dir).resolve()
+        self._storage_dir.mkdir(parents=True, exist_ok=True)
+
+    @staticmethod
+    def _validate_object_name(object_name: str) -> str:
+        normalized = object_name.replace("\\", "/")
+        path = Path(normalized)
+        if not normalized.startswith("ct/") or path.is_absolute() or ".." in path.parts:
+            raise ValueError("无效的对象存储路径")
+        return normalized
+
+    def _object_path(self, object_name: str) -> Path:
+        normalized = self._validate_object_name(object_name)
+        target = (self._storage_dir / normalized).resolve()
+        if self._storage_dir not in target.parents:
+            raise ValueError("无效的对象存储路径")
+        return target
+
+    def upload_file(self, local_path: str, object_name: str = "") -> str:
+        if not object_name:
+            suffix = ".nii.gz" if local_path.endswith(".nii.gz") else Path(local_path).suffix
+            object_name = f"ct/{uuid.uuid4().hex}{suffix}"
+        target = self._object_path(object_name)
+        target.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copyfile(local_path, target)
+        logger.warning("MinIO 不可用，已将影像保存到本地开发对象存储: %s", object_name)
+        return object_name
+
+    def download_file(self, object_name: str, local_path: str = "") -> str:
+        source = self._object_path(object_name)
+        if not source.is_file():
+            raise FileNotFoundError("本地对象存储中不存在该影像")
+        if not local_path:
+            suffix = ".nii.gz" if object_name.endswith(".nii.gz") else Path(object_name).suffix
+            fd, local_path = tempfile.mkstemp(suffix=suffix)
+            os.close(fd)
+        Path(local_path).parent.mkdir(parents=True, exist_ok=True)
+        shutil.copyfile(source, local_path)
+        return local_path
+
+    @property
+    def bucket(self) -> str:
+        return "local-development"
+
+
+def get_oss_client() -> ObjectStorageClient:
+    """获取对象存储客户端；本机 MinIO 不可达时可回退到本地存储。
 
     首次调用时创建实例并缓存，后续调用直接返回缓存实例。
 
@@ -188,5 +249,13 @@ def get_oss_client() -> MinioClient:
     """
     global _client_instance
     if _client_instance is None:
-        _client_instance = MinioClient()
+        client = MinioClient()
+        try:
+            client.ensure_bucket()
+            _client_instance = client
+        except Exception as exc:
+            if not config.allow_local_object_storage_fallback:
+                raise
+            logger.warning("MinIO 不可用，切换到本地开发对象存储: %s", type(exc).__name__)
+            _client_instance = LocalObjectStorageClient(config.local_object_storage_dir)
     return _client_instance

@@ -44,6 +44,7 @@ data/sessions.sqlite-*
 
 # 本地 MinIO 运行时对象存储
 data/minio/
+data/local_object_store/
 
 # 用户上传的知识库资料与索引清单
 data/knowledge_uploads/

@@ -1,0 +1,4 @@
+interface:
+  display_name: "Martin RAG Knowledge"
+  short_description: "Maintain knowledge loading, retrieval, and provenance checks."
+  default_prompt: "Use $martin-rag-knowledge to update Martin knowledge retrieval safely."

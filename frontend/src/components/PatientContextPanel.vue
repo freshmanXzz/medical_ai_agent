@@ -44,9 +44,9 @@
             <span class="info-label">模态</span>
             <strong class="info-value">{{ imageInfo.modality }}</strong>
           </div>
-          <div v-if="imageInfo.image_path" class="info-row info-row--column">
-            <span class="info-label">影像路径</span>
-            <strong class="info-value info-value--break">{{ imageInfo.image_path }}</strong>
+          <div v-if="imageInfo.filename || imageInfo.image_name" class="info-row info-row--column">
+            <span class="info-label">影像文件</span>
+            <strong class="info-value info-value--break">{{ imageInfo.filename || imageInfo.image_name }}</strong>
           </div>
         </div>
       </el-card>
@@ -80,8 +80,8 @@ interface PatientInfo {
 /** 影像信息 */
 interface ImageInfo {
   modality?: string | null
-  image_path?: string | null
   image_name?: string | null
+  filename?: string | null
 }
 
 const props = defineProps<{
@@ -98,11 +98,11 @@ const patientInfo = computed<PatientInfo | null>(() => {
   return hasValue ? (info as PatientInfo) : null
 })
 
-// 影像信息：仅当存在 modality 或 image_path 时才展示
+// 影像信息：仅当存在 modality 或可显示文件名时才展示
 const imageInfo = computed<ImageInfo | null>(() => {
   const info = props.caseContext?.image_info
   if (!info || typeof info !== 'object') return null
-  if (info.modality || info.image_path || info.image_name) {
+  if (info.modality || info.filename || info.image_name) {
     return info as ImageInfo
   }
   return null
