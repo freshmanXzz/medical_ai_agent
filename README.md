@@ -151,17 +151,12 @@ Agent 会模拟医生门诊的沟通方式：先了解就诊原因和患者信�
 
 > 工具调用详情和推理过程写入 `log/agent_thinking/YYYY-MM-DD.log`；模型日志、第三方警告和进度条写入 `log/runtime/YYYY-MM-DD.log`，不会进入问诊界面。
 
-### 方式 2：命令行检测
+### 
 
-```bash
-# 检测结节
-python -m martin detect -i data/ct.nii.gz -o results/detection.json
-
-# 生成报告
-python -m martin case -i results/detection.json -o report.md --type detailed
+```b
 ```
 
-### 方式 3：Web Copilot 工作台（推荐）
+### 方式 2：Web Copilot 工作台（推荐）
 
 Martin Web 端已升级为**面向医生的 AI 医学影像辅助分析工作站**。主工作区围绕病例审阅与诊断依据组织，Martin 对话助手按需展开，不再以聊天窗口作为页面中心。
 
@@ -207,10 +202,6 @@ minio server ./data/minio --console-address ":9001"
 
 ![知识库文档管理页面](docs/images/knowledge-document-management.png)
 
-
-**查看知识库原文（Drawer 展示 Markdown 原文档）：**
-
-![查看知识库原文](docs/knowledge_document_drawer.png)
 
 **CLI 历史会话查看：**
 
