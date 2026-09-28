@@ -20,4 +20,4 @@ description: 维护 Martin 的 CT 上传、MinIO 对象路径、NIfTI、MetaImag
 
 ## 验证
 
-默认运行不加载真实大模型的单元测试；真实 MONAI 推理保持单独集成测试。使用项目测试包装器和 `monai_learning` 环境，参考 `docs/ROADMAP.md`。
+默认运行不加载真实大模型的单元测试；真实 MONAI 推理保持单独集成测试。使用项目测试包装器及 AGENT.md 规定的明确选择的项目环境，参考 `docs/ROADMAP.md`。

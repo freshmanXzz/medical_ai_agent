@@ -35,6 +35,26 @@ class ChatResponse(BaseModel):
     case_context: Dict[str, Any] = Field(default_factory=dict)
 
 
+class ClinicalContextUpdate(BaseModel):
+    age: Optional[int] = Field(default=None, ge=0, le=130)
+    gender: Optional[str] = None
+    smoking_history: Optional[str] = None
+    family_history: Optional[str] = None
+    clinical_note: Optional[str] = None
+
+
+class FindingCreate(BaseModel):
+    finding_type: str = Field(..., min_length=1)
+    observed_at: str = Field(..., min_length=1)
+    source_attachment_id: Optional[str] = None
+    anatomy: Optional[str] = None
+    diameter_mm: Optional[float] = Field(default=None, ge=0)
+
+
+class BusinessReportCreate(BaseModel):
+    content: str = Field(..., min_length=1)
+
+
 # ─── 影像检测 ───────────────────────────────────────────────
 
 class DetectRequest(BaseModel):

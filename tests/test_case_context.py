@@ -265,7 +265,7 @@ class TestAgentExecutorContext:
                 "args": {"detection_context": "{}"},
             }],
         )
-        tool_msg = ToolMessage(content="检索到的知识摘要", tool_call_id="1")
+        tool_msg = ToolMessage(content="检索到的知识摘要", tool_call_id="call_1")
         mock_agent.invoke.return_value = {"messages": [ai_msg, tool_msg]}
 
         executor.invoke({"input": "检索知识"})

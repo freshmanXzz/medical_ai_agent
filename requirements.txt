@@ -33,6 +33,7 @@ fastapi>=0.110.0
 uvicorn>=0.27.0
 python-multipart>=0.0.6
 websockets>=12.0
+argon2-cffi>=23.1.0
 
 # MinIO 对象存储
 minio>=7.2.0

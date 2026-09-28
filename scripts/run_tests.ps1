@@ -1,11 +1,10 @@
 <#
 .SYNOPSIS
-Run the Martin test suite with the project's permanent Conda test environment.
+Run the Martin test suite with an explicitly selected project environment.
 
 .DESCRIPTION
-By default this script uses E:\conda\envs\monai_learning\python.exe.
-Set MARTIN_TEST_PYTHON when a different machine stores the same environment at
-another path. Any remaining arguments are passed directly to pytest.
+Set MARTIN_TEST_PYTHON to the project interpreter, or activate a Conda/virtual
+environment first. There is no fallback to a system Python.
 #>
 
 [CmdletBinding()]
@@ -14,16 +13,24 @@ param(
     [string[]]$PytestArgs
 )
 
-$defaultPython = 'E:\conda\envs\monai_learning\python.exe'
-$python = if ($env:MARTIN_TEST_PYTHON) { $env:MARTIN_TEST_PYTHON } else { $defaultPython }
+$testPython = if ($env:MARTIN_TEST_PYTHON) {
+    $env:MARTIN_TEST_PYTHON
+} elseif ($env:CONDA_PREFIX) {
+    Join-Path $env:CONDA_PREFIX 'python.exe'
+} elseif ($env:VIRTUAL_ENV) {
+    Join-Path $env:VIRTUAL_ENV 'Scripts/python.exe'
+} else {
+    throw 'Activate the project environment or set MARTIN_TEST_PYTHON.'
+}
 
-if (-not (Test-Path -LiteralPath $python)) {
-    throw "Test Python was not found: $python. Install monai_learning or set MARTIN_TEST_PYTHON."
+if (-not (Test-Path -LiteralPath $testPython -PathType Leaf)) {
+    throw "Selected test Python was not found: $testPython"
 }
 
 if (-not $PytestArgs -or $PytestArgs.Count -eq 0) {
     $PytestArgs = @('tests')
 }
 
-& $python -m pytest @PytestArgs
+Write-Host "Test Python: $testPython"
+& $testPython -m pytest @PytestArgs
 exit $LASTEXITCODE

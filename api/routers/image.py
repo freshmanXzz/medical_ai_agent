@@ -6,7 +6,11 @@ import re
 import tempfile
 from pathlib import Path
 
-from fastapi import APIRouter, HTTPException, UploadFile, File, Form, Query, Response
+from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form, Query, Response
+
+from api.deps.auth import get_current_doctor, require_thread_access
+from martin.auth.session_service import DoctorIdentity
+from martin.services.fact_service import FactService
 
 from api.models import (
     DetectRequest,
@@ -53,8 +57,13 @@ def _create_session_agent(session_id: str):
 
 
 @router.post("/image/upload", response_model=UploadResponse)
-def upload_ct_image(file: UploadFile = File(...), session_id: str = Form(...)):
+def upload_ct_image(
+    file: UploadFile = File(...),
+    session_id: str = Form(...),
+    doctor: DoctorIdentity = Depends(get_current_doctor),
+):
     """上传 CT 影像并将对象引用仅保存到指定会话。"""
+    thread = require_thread_access(doctor, session_id, write=True)
     if not _is_allowed_filename(file.filename or ""):
         raise HTTPException(
             status_code=400,
@@ -85,6 +94,9 @@ def upload_ct_image(file: UploadFile = File(...), session_id: str = Form(...)):
 
         agent = _create_session_agent(session_id)
         agent.case_context.set_image_source(object_name, file.filename or "")
+        FactService().add_attachment(
+            doctor.id, thread["case_id"], file.filename or "", object_name
+        )
         agent.save_case_context()
 
         logger.info("影像文件上传成功: %s, %d bytes", file.filename, file_size)
@@ -104,8 +116,11 @@ def upload_ct_image(file: UploadFile = File(...), session_id: str = Form(...)):
 
 
 @router.post("/image/analyze", response_model=DetectResponse)
-def analyze_ct_image(request: DetectRequest):
+def analyze_ct_image(
+    request: DetectRequest, doctor: DoctorIdentity = Depends(get_current_doctor)
+):
     """仅分析该会话已保存的受控 MinIO 影像。"""
+    require_thread_access(doctor, request.session_id, write=True)
     from martin.agent.tools import analyze_image, reset_case_context, set_case_context
 
     agent = _create_session_agent(request.session_id)
@@ -138,10 +153,6 @@ def analyze_ct_image(request: DetectRequest):
         logger.error("影像检测失败: %s", raw_text)
         raise HTTPException(status_code=500, detail=raw_text)
 
-    # 该接口直接调用检测工具，不经过 AgentExecutor.invoke；显式将工具更新后的
-    # CaseContext 写回当前 thread 的 SqliteSaver checkpoint。
-    agent.save_case_context()
-
     total_match = re.search(r"检测到结节总数:\s*(\d+)", raw_text)
     total = int(total_match.group(1)) if total_match else 0
     nodules = []
@@ -172,6 +183,19 @@ def analyze_ct_image(request: DetectRequest):
             } if dimensions else {},
         ))
 
+    try:
+        FactService().record_analysis(
+            doctor.id,
+            request.session_id,
+            object_name,
+            case_context.nodules,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail="影像尚未关联当前病例，请重新上传。") from exc
+
+    # Business DB 写入成功后保存当前 thread 的运行状态。
+    agent.save_case_context()
+
     return DetectResponse(
         image=case_context.image_info.get("filename") or case_context.image_info.get("image_name") or "",
         total_nodules=total,
@@ -195,8 +219,11 @@ def _viewer_error(exc: Exception) -> HTTPException:
     "/sessions/{thread_id}/viewer/manifest",
     response_model=ViewerManifestResponse,
 )
-def get_viewer_manifest(thread_id: str):
+def get_viewer_manifest(
+    thread_id: str, doctor: DoctorIdentity = Depends(get_current_doctor)
+):
     """返回当前会话的轴位阅片元数据，不接受影像路径或对象键。"""
+    require_thread_access(doctor, thread_id)
     from martin.vision.viewer import viewer_manifest
 
     try:
@@ -211,8 +238,10 @@ def get_viewer_axial_slice(
     slice_index: int,
     window_center: float = Query(default=-600.0, ge=-1500.0, le=3000.0),
     window_width: float = Query(default=1500.0, ge=1.0, le=5000.0),
+    doctor: DoctorIdentity = Depends(get_current_doctor),
 ):
     """渲染一张病例轴位 PNG；客户端不能控制影像来源。"""
+    require_thread_access(doctor, thread_id)
     from martin.vision.viewer import viewer_slice
 
     try:

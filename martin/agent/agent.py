@@ -18,7 +18,7 @@ from langchain.agents import AgentState, create_agent as create_langchain_agent
 from langchain.agents.middleware import ModelRequest, dynamic_prompt
 from langchain_core.agents import AgentAction
 from langchain_core.callbacks import BaseCallbackHandler
-from langchain_core.messages import AIMessage, ToolMessage
+from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
 from langchain_core.tools import BaseTool
 from langgraph.checkpoint.base import BaseCheckpointSaver
 
@@ -32,7 +32,8 @@ from martin.agent import (
 )
 from martin.agent.prompt import SYSTEM_PROMPT
 from martin.agent.case_context import CaseContext
-from martin.agent.tools import reset_case_context, set_case_context
+from martin.agent.errors import CasePersistenceError
+from martin.agent.tools import get_case_context, reset_case_context, set_case_context
 from martin.llm.chat_model import get_chat_model
 from martin.agent.sessions import (
     SessionManager,
@@ -199,8 +200,8 @@ def _build_system_prompt(state: MartinState) -> str:
 
 @dynamic_prompt
 def _case_context_prompt(request: ModelRequest) -> str:
-    """在每轮模型调用前，经 LangChain middleware 注入病例上下文。"""
-    return _build_system_prompt(request.state)
+    """运行期间以工具使用的同一个对象构建 Prompt，完成后统一保存快照。"""
+    return _build_system_prompt({"case_context": get_case_context().to_dict()})
 
 
 # ─── Agent 执行器 ───────────────────────────────────────────
@@ -291,11 +292,8 @@ class AgentExecutor:
         finally:
             reset_case_context(token)
 
-        # 从返回的 state 中读取最新的 case_context
-        if isinstance(result, dict) and "case_context" in result:
-            latest_ctx = result.get("case_context")
-            if latest_ctx:
-                self.case_context = CaseContext.from_dict(latest_ctx)
+        # 工具修改的是当前运行对象；Graph 中的输入快照不能反向覆盖它。
+        # 所有工具结束后，由 save_case_context 统一写入持久化快照。
 
         all_messages = result.get("messages", [])
         parsed_result = self._parse_result(all_messages)
@@ -322,9 +320,8 @@ class AgentExecutor:
                 {"case_context": self.case_context.to_dict()},
             )
         except Exception as exc:
-            # 不影响已生成的回答，但记录错误，避免“界面显示已更新、重启后丢失”
-            # 这类难以追踪的数据不一致问题。
-            logger.error("写回病例上下文 checkpoint 失败: %s", exc, exc_info=True)
+            logger.error("写回病例上下文 checkpoint 失败", exc_info=True)
+            raise CasePersistenceError("病例保存失败，请重试。") from exc
 
     def _sync_case_context_from_steps(
         self, intermediate_steps: List[Tuple[AgentAction, str]]
@@ -348,13 +345,28 @@ class AgentExecutor:
             logger.warning("从 Agent 结果同步病例上下文失败: %s", e)
 
     def _parse_result(self, messages: List) -> Dict[str, Any]:
-        """从完整消息列表中解析 output 和 intermediate_steps。"""
+        """只解析最后一条用户消息之后的调用，按 tool_call_id 配对。"""
         intermediate_steps: List[Tuple[AgentAction, str]] = []
         final_output = ""
+        start = next(
+            (i + 1 for i in range(len(messages) - 1, -1, -1)
+             if isinstance(messages[i], HumanMessage)),
+            0,
+        )
+        current_messages = messages[start:]
+        outputs = {
+            msg.tool_call_id: msg.content
+            for msg in current_messages if isinstance(msg, ToolMessage)
+        }
+        seen = set()
 
-        for msg in messages:
+        for msg in current_messages:
             if isinstance(msg, AIMessage) and msg.tool_calls:
                 for tc in msg.tool_calls:
+                    call_id = tc.get("id")
+                    if not call_id or call_id in seen:
+                        continue
+                    seen.add(call_id)
                     tool_name = tc.get("name", "")
                     tool_args = tc.get("args", {})
 
@@ -363,12 +375,7 @@ class AgentExecutor:
                         tool_input=tool_args,
                         log="",
                     )
-                    intermediate_steps.append((action, ""))
-
-            elif isinstance(msg, ToolMessage):
-                if intermediate_steps and intermediate_steps[-1][1] == "":
-                    action, _ = intermediate_steps[-1]
-                    intermediate_steps[-1] = (action, msg.content)
+                    intermediate_steps.append((action, outputs.get(call_id, "")))
 
             elif isinstance(msg, AIMessage) and not msg.tool_calls:
                 final_output = msg.content or ""

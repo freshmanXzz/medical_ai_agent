@@ -3,21 +3,25 @@
 复用已有 SQLite session，不重新实现会话管理。
 """
 import logging
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
 from api.models import SessionSummary as PydSessionSummary, SessionListResponse, SessionDetailResponse
+from api.deps.auth import get_current_doctor, require_thread_access
+from martin.auth.session_service import DoctorIdentity
+from martin.services.thread_service import ThreadService
 
 logger = logging.getLogger(__name__)
 router = APIRouter(tags=["会话管理"])
 
 
 @router.get("/sessions", response_model=SessionListResponse)
-def list_sessions():
-    """获取所有历史会话列表。"""
+def list_sessions(doctor: DoctorIdentity = Depends(get_current_doctor)):
+    """只列出当前医生仍获授权的业务 Thread checkpoint。"""
     from martin.agent.sessions import SessionManager, get_default_checkpointer
     
     checkpointer = get_default_checkpointer()
     manager = SessionManager(checkpointer)
-    summaries = manager.list_sessions()
+    authorized_ids = ThreadService().list_authorized_ids(doctor.id)
+    summaries = [s for s in manager.list_sessions() if s.thread_id in authorized_ids]
     
     return SessionListResponse(
         sessions=[
@@ -34,8 +38,11 @@ def list_sessions():
 
 
 @router.get("/sessions/{thread_id}", response_model=SessionDetailResponse)
-def get_session_detail(thread_id: str):
+def get_session_detail(
+    thread_id: str, doctor: DoctorIdentity = Depends(get_current_doctor)
+):
     """获取指定会话的详细信息（消息历史 + 病例上下文）。"""
+    require_thread_access(doctor, thread_id)
     from martin.agent.sessions import SessionManager, get_default_checkpointer
     
     checkpointer = get_default_checkpointer()

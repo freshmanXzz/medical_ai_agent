@@ -156,7 +156,7 @@ def test_cache_loads_synthetic_nifti_as_ras_and_cleans_temp_file(monkeypatch, tm
     assert not downloaded.exists()
 
 
-def test_viewer_api_does_not_expose_source_identifiers(monkeypatch):
+def test_viewer_api_does_not_expose_source_identifiers(monkeypatch, entity_db):
     import martin.vision.viewer as viewer
 
     monkeypatch.setattr(
@@ -172,9 +172,18 @@ def test_viewer_api_does_not_expose_source_identifiers(monkeypatch):
     monkeypatch.setattr(viewer, "viewer_slice", lambda *args: b"png-bytes")
 
     with TestClient(app) as client:
-        manifest = client.get("/api/sessions/case-1/viewer/manifest")
-        png = client.get("/api/sessions/case-1/viewer/axial/2.png")
-        invalid_window = client.get("/api/sessions/case-1/viewer/axial/2.png?window_width=0")
+        assert client.post(
+            "/api/auth/login",
+            json={"username": "doctor_a", "password": "TestDoctorA!2026"},
+        ).status_code == 200
+        thread_id = client.post("/api/threads", json={"case_id": "C001"}).json()[
+            "thread_id"
+        ]
+        manifest = client.get(f"/api/sessions/{thread_id}/viewer/manifest")
+        png = client.get(f"/api/sessions/{thread_id}/viewer/axial/2.png")
+        invalid_window = client.get(
+            f"/api/sessions/{thread_id}/viewer/axial/2.png?window_width=0"
+        )
 
     assert manifest.status_code == 200
     assert manifest.json() == {

@@ -9,6 +9,16 @@ from fastapi.testclient import TestClient
 from api.main import app
 
 
+def _authenticated_thread(client):
+    assert client.post(
+        "/api/auth/login",
+        json={"username": "doctor_a", "password": "TestDoctorA!2026"},
+    ).status_code == 200
+    response = client.post("/api/threads", json={"case_id": "C001"})
+    assert response.status_code == 200
+    return response.json()["thread_id"]
+
+
 def test_health_endpoint():
     with TestClient(app) as client:
         response = client.get("/api/health")
@@ -76,18 +86,21 @@ def test_knowledge_search_reports_unavailable_vector_store(monkeypatch):
     assert "尚未初始化" in response.json()["detail"]
 
 
-def test_analyze_rejects_a_session_without_a_server_side_image_source():
+def test_analyze_rejects_a_session_without_a_server_side_image_source(entity_db):
     with TestClient(app) as client:
+        thread_id = _authenticated_thread(client)
         response = client.post(
             "/api/image/analyze",
-            json={"session_id": "web-test"},
+            json={"session_id": thread_id},
         )
 
     assert response.status_code == 409
     assert "请先上传" in response.json()["detail"]
 
 
-def test_upload_and_analyze_keep_object_reference_server_side(monkeypatch, tmp_path):
+def test_upload_and_analyze_keep_object_reference_server_side(
+    monkeypatch, tmp_path, entity_db
+):
     import api.routers.image as image_router
     import martin.agent.tools as tools_module
     import martin.utils.oss_client as oss_client
@@ -143,12 +156,13 @@ def test_upload_and_analyze_keep_object_reference_server_side(monkeypatch, tmp_p
     monkeypatch.setattr(tools_module.analyze_image, "func", fake_analyze)
 
     with TestClient(app) as client:
+        thread_id = _authenticated_thread(client)
         upload = client.post(
             "/api/image/upload",
-            data={"session_id": "detection-session"},
+            data={"session_id": thread_id},
             files={"file": ("patient-study.nii.gz", b"nifti-data", "application/octet-stream")},
         )
-        response = client.post("/api/image/analyze", json={"session_id": "detection-session"})
+        response = client.post("/api/image/analyze", json={"session_id": thread_id})
 
     assert upload.status_code == 200
     assert upload.json() == {"size": len(b"nifti-data"), "filename": "patient-study.nii.gz"}
@@ -164,9 +178,23 @@ def test_upload_and_analyze_keep_object_reference_server_side(monkeypatch, tmp_p
     assert stub_agent.case_context.image_info["object_name"] == "ct/study-123.nii.gz"
     assert stub_agent.case_context.image_info["image_path"] == "ct/study-123.nii.gz"
     assert stub_agent.saved is True
+    from martin.db import connect
+
+    with connect(entity_db) as connection:
+        attachment = connection.execute(
+            "SELECT id, case_id, analyzed_at FROM attachments WHERE storage_path = ?",
+            ("ct/study-123.nii.gz",),
+        ).fetchone()
+        finding = connection.execute(
+            "SELECT source_attachment_id, diameter_mm FROM findings WHERE source_attachment_id = ?",
+            (attachment["id"],),
+        ).fetchone()
+    assert attachment["case_id"] == "C001"
+    assert attachment["analyzed_at"]
+    assert tuple(finding) == (attachment["id"], 8.2)
 
 
-def test_chat_endpoint_calls_agent_and_returns_context(monkeypatch):
+def test_chat_endpoint_calls_agent_and_returns_context(monkeypatch, entity_db):
     import martin.agent.agent as agent_module
 
     class FakeAgent:
@@ -179,10 +207,11 @@ def test_chat_endpoint_calls_agent_and_returns_context(monkeypatch):
     monkeypatch.setattr(agent_module, "create_agent", lambda **_: FakeAgent())
 
     with TestClient(app) as client:
+        thread_id = _authenticated_thread(client)
         response = client.post(
             "/api/agent/chat",
             json={
-                "session_id": "web-chat-test",
+                "session_id": thread_id,
                 "user_message": "你好",
                 "case_context": {"patient_info": {"age": 60}},
             },
@@ -191,11 +220,11 @@ def test_chat_endpoint_calls_agent_and_returns_context(monkeypatch):
     assert response.status_code == 200
     payload = response.json()
     assert payload["output"] == "你好，我是 Martin。"
-    assert payload["session_id"] == "web-chat-test"
+    assert payload["session_id"] == thread_id
     assert payload["case_context"]["patient_info"]["age"] == 60
 
 
-def test_chat_attachment_does_not_accept_or_echo_an_object_key(monkeypatch):
+def test_chat_attachment_does_not_accept_or_echo_an_object_key(monkeypatch, entity_db):
     import martin.agent.agent as agent_module
 
     class FakeAgent:
@@ -208,10 +237,11 @@ def test_chat_attachment_does_not_accept_or_echo_an_object_key(monkeypatch):
 
     monkeypatch.setattr(agent_module, "create_agent", lambda **_: FakeAgent())
     with TestClient(app) as client:
+        thread_id = _authenticated_thread(client)
         response = client.post(
             "/api/agent/chat",
             json={
-                "session_id": "attachment-security",
+                "session_id": thread_id,
                 "user_message": ".",
                 "attachment": {
                     "filename": "patient-study.nii.gz",
@@ -225,7 +255,9 @@ def test_chat_attachment_does_not_accept_or_echo_an_object_key(monkeypatch):
     assert "private-object" not in response.text
 
 
-def test_chat_context_cannot_replace_a_server_image_source_with_a_path(monkeypatch):
+def test_chat_context_cannot_replace_a_server_image_source_with_a_path(
+    monkeypatch, entity_db
+):
     import martin.agent.agent as agent_module
     from martin.agent.case_context import CaseContext
 
@@ -237,10 +269,11 @@ def test_chat_context_cannot_replace_a_server_image_source_with_a_path(monkeypat
 
     monkeypatch.setattr(agent_module, "create_agent", lambda **_: FakeAgent())
     with TestClient(app) as client:
+        thread_id = _authenticated_thread(client)
         response = client.post(
             "/api/agent/chat",
             json={
-                "session_id": "context-security",
+                "session_id": thread_id,
                 "user_message": "你好",
                 "case_context": {"image_info": {"image_path": "C:\\private\\scan.nii.gz"}},
             },
@@ -250,15 +283,19 @@ def test_chat_context_cannot_replace_a_server_image_source_with_a_path(monkeypat
     assert "private" not in response.text
 
 
-def test_historical_session_response_redacts_the_minio_reference(monkeypatch):
+def test_historical_session_response_redacts_the_minio_reference(
+    monkeypatch, entity_client
+):
     import martin.agent.sessions as sessions_module
+
+    thread_id = _authenticated_thread(entity_client)
 
     class FakeSessionManager:
         def __init__(self, _):
             pass
 
         def get_case_context(self, thread_id):
-            assert thread_id == "historic-viewer"
+            assert thread_id == expected_thread_id
             return {
                 "image_info": {
                     "modality": "胸部CT",
@@ -274,11 +311,11 @@ def test_historical_session_response_redacts_the_minio_reference(monkeypatch):
         def get_messages(self, thread_id):
             return []
 
+    expected_thread_id = thread_id
     monkeypatch.setattr(sessions_module, "SessionManager", FakeSessionManager)
     monkeypatch.setattr(sessions_module, "get_default_checkpointer", lambda: object())
 
-    with TestClient(app) as client:
-        response = client.get("/api/sessions/historic-viewer")
+    response = entity_client.get(f"/api/sessions/{thread_id}")
 
     assert response.status_code == 200
     assert response.json()["case_context"]["image_info"]["filename"] == "patient-study.nii.gz"
@@ -287,7 +324,7 @@ def test_historical_session_response_redacts_the_minio_reference(monkeypatch):
     assert "image_path" not in response.text
 
 
-def test_chat_endpoint_hides_model_connection_error(monkeypatch):
+def test_chat_endpoint_hides_model_connection_error(monkeypatch, entity_db):
     """模型网络异常不应以底层 Connection error 形式暴露给前端。"""
     import martin.agent.agent as agent_module
 
@@ -300,9 +337,10 @@ def test_chat_endpoint_hides_model_connection_error(monkeypatch):
     monkeypatch.setattr(agent_module, "create_agent", lambda **_: FakeAgent())
 
     with TestClient(app) as client:
+        thread_id = _authenticated_thread(client)
         response = client.post(
             "/api/agent/chat",
-            json={"session_id": "connection-error", "user_message": "你好", "case_context": {}},
+            json={"session_id": thread_id, "user_message": "你好", "case_context": {}},
         )
 
     assert response.status_code == 502
@@ -320,7 +358,7 @@ def test_spa_history_route_returns_frontend_when_built():
     assert "Martin 医学智能体" in response.text
 
 
-def test_chat_endpoint_writes_audit_log(monkeypatch, tmp_path):
+def test_chat_endpoint_writes_audit_log(monkeypatch, tmp_path, entity_db):
     """测试 /api/agent/chat 端点在 Agent 执行后正确写入审计日志。"""
     import martin.agent.agent as agent_module
     import martin.agent.audit as audit_module
@@ -382,17 +420,18 @@ def test_chat_endpoint_writes_audit_log(monkeypatch, tmp_path):
     monkeypatch.setattr(agent_module, "create_agent", lambda **_: FakeAgent())
 
     with TestClient(app) as client:
+        thread_id = _authenticated_thread(client)
         response = client.post(
             "/api/agent/chat",
             json={
-                "session_id": "audit-test-session",
+                "session_id": thread_id,
                 "user_message": "8mm结节怎么办",
             },
         )
 
     assert response.status_code == 200
     assert len(instances) == 1
-    assert instances[0].session_id == "audit-test-session"
+    assert instances[0].session_id == thread_id
     assert len(instances[0].logged_calls) == 1
     call = instances[0].logged_calls[0]
     assert call["tool_name"] == "retrieve_knowledge"

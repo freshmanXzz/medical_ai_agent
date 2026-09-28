@@ -33,10 +33,14 @@ class TestAgentInitialization:
         assert kwargs["middleware"] == [_case_context_prompt]
         assert kwargs["checkpointer"] is not None
 
-    def test_create_agent_with_default_tools(self):
+    @patch("martin.agent.agent.create_langchain_agent")
+    @patch("martin.agent.agent.get_chat_model")
+    def test_create_agent_with_default_tools(self, mock_get_chat_model, mock_create_agent):
         """测试使用默认工具创建 LangChain Agent。"""
         from martin.agent.agent import create_agent
 
+        mock_get_chat_model.return_value = MagicMock()
+        mock_create_agent.return_value = MagicMock()
         agent = create_agent(verbose=False)
         assert agent is not None
         # 默认加载六个核心工具：analyze_image / retrieve_knowledge /
@@ -63,10 +67,14 @@ class TestAgentInitialization:
         assert "当前资料无法分级" in SYS_PROMPT_DETAILED
         assert "不得虚构" in SYS_PROMPT_DETAILED
 
-    def test_create_agent_tool_names(self):
+    @patch("martin.agent.agent.create_langchain_agent")
+    @patch("martin.agent.agent.get_chat_model")
+    def test_create_agent_tool_names(self, mock_get_chat_model, mock_create_agent):
         """测试工具名称正确。"""
         from martin.agent.agent import create_agent
 
+        mock_get_chat_model.return_value = MagicMock()
+        mock_create_agent.return_value = MagicMock()
         agent = create_agent(verbose=False)
         tool_names = [t.name for t in agent.tools]
         assert "analyze_image" in tool_names

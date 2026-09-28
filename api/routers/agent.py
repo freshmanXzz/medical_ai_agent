@@ -7,8 +7,14 @@ import json
 import logging
 import asyncio
 
-from fastapi import APIRouter, HTTPException, WebSocket, WebSocketDisconnect
+from fastapi import APIRouter, Depends, HTTPException, WebSocket, WebSocketDisconnect
 from langchain_core.agents import AgentAction
+
+from martin.agent.errors import CasePersistenceError
+from martin.auth.session_service import DoctorIdentity, SessionService
+from martin.services.access_service import AccessDeniedError, EntityNotFoundError
+from martin.services.thread_service import ThreadService
+from api.deps.auth import COOKIE_NAME, get_current_doctor, require_thread_access
 
 from api.models import (
     AttachmentInfo,
@@ -72,8 +78,9 @@ def _process_attachment(agent, attachment: AttachmentInfo) -> str:
 
 
 @router.post("/agent/chat", response_model=ChatResponse)
-def agent_chat(request: ChatRequest):
+def agent_chat(request: ChatRequest, doctor: DoctorIdentity = Depends(get_current_doctor)):
     """Agent 对话接口，调用现有 AgentExecutor 进行推理。"""
+    require_thread_access(doctor, request.session_id, write=True)
     from martin.agent.agent import create_agent
     from martin.agent.audit import AuditLogger
     from martin.agent.sessions import get_default_checkpointer
@@ -120,6 +127,8 @@ def agent_chat(request: ChatRequest):
 
     try:
         result = agent.invoke({"input": user_message})
+    except CasePersistenceError as e:
+        raise HTTPException(status_code=503, detail="病例保存失败，请重试。") from e
     except Exception as e:
         audit_logger.log_agent_error(str(e))
         raise HTTPException(status_code=502, detail="Agent 执行失败，请稍后重试。") from e
@@ -172,6 +181,15 @@ async def agent_websocket(websocket: WebSocket, session_id: str):
     - final: 最终回答
     - error: 错误信息
     """
+    doctor = SessionService().authenticate(websocket.cookies.get(COOKIE_NAME))
+    if doctor is None:
+        await websocket.close(code=1008)
+        return
+    try:
+        ThreadService().get_thread_authorized(doctor.id, session_id, write=True)
+    except (EntityNotFoundError, AccessDeniedError):
+        await websocket.close(code=1008)
+        return
     await websocket.accept()
     from martin.agent.audit import AuditLogger
     audit_logger = AuditLogger(session_id=session_id)
@@ -291,6 +309,11 @@ async def agent_websocket(websocket: WebSocket, session_id: str):
                     content=final_output,
                 ).model_dump())
 
+            except CasePersistenceError:
+                await websocket.send_json(WsStatusMessage(
+                    type="error",
+                    content="病例保存失败，请重试。",
+                ).model_dump())
             except json.JSONDecodeError:
                 await websocket.send_json(WsStatusMessage(
                     type="error",
