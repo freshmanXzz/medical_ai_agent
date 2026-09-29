@@ -24,6 +24,7 @@ from martin.agent.tools import (
     download_from_oss,
     generate_report,
     retrieve_knowledge,
+    save_report_preference,
     update_case_context,
     upload_to_oss,
 )
@@ -31,6 +32,7 @@ from martin.agent.tools import (
 __all__ = [
     "analyze_image",
     "retrieve_knowledge",
+    "save_report_preference",
     "generate_report",
     "update_case_context",
     "upload_to_oss",

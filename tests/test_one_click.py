@@ -70,7 +70,7 @@ def test_inference():
     return result
 
 
-def test_case_generator(result):
+def run_case_generator(result):
     """测试2: 病例报告生成（模板）"""
     print()
     print("-" * 70)
@@ -97,7 +97,7 @@ def test_case_generator(result):
     return saved_paths
 
 
-def test_llm_generation(result):
+def run_llm_generation(result):
     """测试3: 病例报告生成（LLM）"""
     print()
     print("-" * 70)
@@ -183,6 +183,54 @@ def test_summary():
     print("=" * 70)
 
 
+def _synthetic_detection_result():
+    """Provide a deterministic input for standalone pytest checks."""
+    return {
+        "image": "synthetic-test.nii.gz",
+        "total_nodules": 1,
+        "nodules": [
+            {
+                "index": 1,
+                "diameter": 6.0,
+                "score": 0.9,
+                "center": {"x": 1.0, "y": 2.0, "z": 3.0},
+                "dimensions": {"width": 6.0, "height": 5.0, "depth": 4.0},
+            }
+        ],
+    }
+
+
+def test_case_generator(monkeypatch, tmp_path):
+    """The one-click template step writes three reports without network access."""
+    monkeypatch.chdir(tmp_path)
+
+    def unavailable_chain():
+        raise RuntimeError("Synthetic offline fallback")
+
+    monkeypatch.setattr("martin.llm.chain.create_diagnosis_chain", unavailable_chain)
+    paths = run_case_generator(_synthetic_detection_result())
+
+    assert len(paths) == 3
+    for path in paths:
+        assert "结节" in (tmp_path / path).read_text(encoding="utf-8")
+
+
+def test_llm_generation(monkeypatch, tmp_path):
+    """The one-click LLM step writes the generated report using a local chain."""
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("DEEPSEEK_API_KEY", "synthetic-test-key")
+
+    class LocalChain:
+        def invoke(self, payload):
+            assert payload["detection_result"]["image"] == "synthetic-test.nii.gz"
+            return "模拟 LLM 报告：肺结节"
+
+    monkeypatch.setattr("martin.llm.chain.create_diagnosis_chain", LocalChain)
+    path = run_llm_generation(_synthetic_detection_result())
+
+    assert (tmp_path / path).read_text(encoding="utf-8") == "模拟 LLM 报告：肺结节"
+
+
 def main():
     """主函数"""
     test_header()
@@ -193,10 +241,10 @@ def main():
         
         if result:
             # 测试2: 病例报告生成（模板）
-            test_case_generator(result)
+            run_case_generator(result)
             
             # 测试3: LLM生成
-            test_llm_generation(result)
+            run_llm_generation(result)
         
         # 测试4: 结果管理器
         test_result_manager()

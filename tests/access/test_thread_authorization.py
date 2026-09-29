@@ -3,6 +3,7 @@
 import uuid
 
 import pytest
+from langgraph.checkpoint.sqlite import SqliteSaver
 from starlette.websockets import WebSocketDisconnect
 
 from martin.db import connect
@@ -59,3 +60,48 @@ def test_websocket_rejects_unknown_thread(entity_client):
         with entity_client.websocket_connect(f"/api/ws/agent/{uuid.uuid4()}"):
             pass
     assert error.value.code == 1008
+
+
+def test_other_doctor_cannot_delete_thread(entity_client):
+    _login(entity_client)
+    thread_id = entity_client.post(
+        "/api/threads", json={"case_id": "C001"}
+    ).json()["thread_id"]
+    _login(entity_client, "b")
+    assert entity_client.delete(f"/api/threads/{thread_id}").status_code == 403
+
+
+def test_delete_thread_api_removes_checkpoint(entity_client, entity_db, tmp_path, monkeypatch):
+    _login(entity_client)
+    thread_id = entity_client.post(
+        "/api/threads", json={"case_id": "C001"}
+    ).json()["thread_id"]
+    with SqliteSaver.from_conn_string(str(tmp_path / "sessions.sqlite")) as saver:
+        monkeypatch.setattr("martin.agent.sessions.get_default_checkpointer", lambda: saver)
+        response = entity_client.delete(f"/api/threads/{thread_id}")
+        assert response.status_code == 200
+        assert saver.get_tuple({"configurable": {"thread_id": thread_id}}) is None
+    with connect(entity_db) as connection:
+        assert connection.execute(
+            "SELECT 1 FROM threads WHERE id = ?", (thread_id,)
+        ).fetchone() is None
+
+
+def test_delete_thread_api_reports_saver_failure(entity_client, entity_db, monkeypatch):
+    class FailingSaver:
+        def delete_thread(self, _thread_id):
+            raise OSError("synthetic saver failure")
+
+    _login(entity_client)
+    thread_id = entity_client.post(
+        "/api/threads", json={"case_id": "C001"}
+    ).json()["thread_id"]
+    monkeypatch.setattr(
+        "martin.agent.sessions.get_default_checkpointer", lambda: FailingSaver()
+    )
+    response = entity_client.delete(f"/api/threads/{thread_id}")
+    assert response.status_code == 503
+    with connect(entity_db) as connection:
+        assert connection.execute(
+            "SELECT 1 FROM threads WHERE id = ?", (thread_id,)
+        ).fetchone() is not None

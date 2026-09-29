@@ -43,6 +43,8 @@ data/sessions.sqlite
 data/sessions.sqlite-*
 data/app.sqlite
 data/app.sqlite-*
+data/memory.sqlite
+data/memory.sqlite-*
 
 # 本地 MinIO 运行时对象存储
 data/minio/

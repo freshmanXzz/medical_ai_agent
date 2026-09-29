@@ -11,6 +11,8 @@
 """
 import logging
 import os
+import re
+from contextvars import ContextVar
 from datetime import datetime
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -27,6 +29,7 @@ from martin.agent import (
     download_from_oss,
     generate_report,
     retrieve_knowledge,
+    save_report_preference,
     update_case_context,
     upload_to_oss,
 )
@@ -34,6 +37,12 @@ from martin.agent.prompt import SYSTEM_PROMPT
 from martin.agent.case_context import CaseContext
 from martin.agent.errors import CasePersistenceError
 from martin.agent.tools import get_case_context, reset_case_context, set_case_context
+from martin.memory.actor import reset_actor_id, set_actor_id
+from martin.memory.output_preferences import (
+    OutputPreferences,
+    PREFERENCE_WRITE_FAILURE_MESSAGE,
+    enforce_preferences,
+)
 from martin.llm.chat_model import get_chat_model
 from martin.agent.sessions import (
     SessionManager,
@@ -41,6 +50,7 @@ from martin.agent.sessions import (
 )
 
 logger = logging.getLogger(__name__)
+_memory_prompt_var: ContextVar[str] = ContextVar("memory_prompt", default="")
 
 
 def _get_thinking_logger() -> logging.Logger:
@@ -201,7 +211,9 @@ def _build_system_prompt(state: MartinState) -> str:
 @dynamic_prompt
 def _case_context_prompt(request: ModelRequest) -> str:
     """运行期间以工具使用的同一个对象构建 Prompt，完成后统一保存快照。"""
-    return _build_system_prompt({"case_context": get_case_context().to_dict()})
+    prompt = _build_system_prompt({"case_context": get_case_context().to_dict()})
+    memory_prompt = _memory_prompt_var.get()
+    return f"{prompt}\n\n{memory_prompt}" if memory_prompt else prompt
 
 
 # ─── Agent 执行器 ───────────────────────────────────────────
@@ -220,11 +232,15 @@ class AgentExecutor:
         verbose: bool = True,
         thread_id: Optional[str] = None,
         checkpointer: Optional[BaseCheckpointSaver] = None,
+        doctor_id: Optional[str] = None,
     ):
         self.tools = tools
         self.verbose = verbose
         self.handle_parsing_errors = True
         self.thread_id = thread_id or "default"
+        self.doctor_id = doctor_id
+        self.memory_prompt = ""
+        self.report_preferences = {}
         self._thinking_logger = _get_thinking_logger()
 
         # 会话记忆：同一 thread_id 的多次 invoke 自动保持历史
@@ -275,6 +291,8 @@ class AgentExecutor:
 
         # 设置当前会话的病例上下文，供工具调用时使用
         token = set_case_context(self.case_context)
+        memory_token = _memory_prompt_var.set(getattr(self, "memory_prompt", ""))
+        actor_token = set_actor_id(getattr(self, "doctor_id", None))
         try:
             result = self._agent.invoke(
                 {
@@ -290,6 +308,8 @@ class AgentExecutor:
                 "intermediate_steps": [],
             }
         finally:
+            reset_actor_id(actor_token)
+            _memory_prompt_var.reset(memory_token)
             reset_case_context(token)
 
         # 工具修改的是当前运行对象；Graph 中的输入快照不能反向覆盖它。
@@ -297,6 +317,48 @@ class AgentExecutor:
 
         all_messages = result.get("messages", [])
         parsed_result = self._parse_result(all_messages)
+        initial_output = parsed_result["output"]
+        preferences = OutputPreferences.from_dict(
+            getattr(self, "report_preferences", {})
+        ).for_task(user_input)
+        steps = parsed_result.get("intermediate_steps", [])
+        write_failed = False
+        for action, output in steps:
+            if action.tool == "save_report_preference":
+                preferences = OutputPreferences.from_dict(action.tool_input)
+                if str(output).startswith("错误:"):
+                    write_failed = True
+        if write_failed:
+            # Never let a model's optimistic acknowledgement override failed I/O.
+            parsed_result["output"] = PREFERENCE_WRITE_FAILURE_MESSAGE
+            if preferences.focus_spiculation:
+                parsed_result["output"] += "毛刺征只按已有资料描述。"
+            parsed_result["memory_write_failed"] = True
+
+        report_requested = any(action.tool == "generate_report" for action, _ in steps)
+        report_requested = report_requested or bool(re.search(
+            r"(?:生成|出|写|整理|提供).{0,6}报告", user_input
+        ))
+        if report_requested:
+            parsed_result["output"], parsed_result["preference_validation"] = (
+                enforce_preferences(
+                    parsed_result["output"], preferences,
+                    lambda messages: get_chat_model().invoke(messages),
+                )
+            )
+        if parsed_result["output"] != initial_output:
+            # Replace the final AI message, so recovery shows the returned answer.
+            last_answer = next((
+                msg for msg in reversed(all_messages)
+                if isinstance(msg, AIMessage) and not msg.tool_calls
+            ), None)
+            try:
+                self._agent.update_state(config, {"messages": [AIMessage(
+                    content=parsed_result["output"],
+                    id=last_answer.id if last_answer else None,
+                )]})
+            except Exception as exc:
+                raise CasePersistenceError("病例保存失败，请重试。") from exc
 
         # 根据工具执行结果同步病例上下文
         self._sync_case_context_from_steps(
@@ -335,7 +397,10 @@ class AgentExecutor:
             for action, output in intermediate_steps:
                 tool_name = getattr(action, "tool", "")
                 output_str = str(output)
-                is_error = "错误:" in output_str or "未初始化" in output_str
+                is_error = any(
+                    marker in output_str
+                    for marker in ("错误:", "未初始化", "报告生成失败")
+                )
 
                 if tool_name == "retrieve_knowledge" and not is_error:
                     self.case_context.set_knowledge_summary(output_str[:2000])
@@ -397,6 +462,7 @@ def create_agent(
     verbose: bool = True,
     thread_id: Optional[str] = None,
     checkpointer: Optional[BaseCheckpointSaver] = None,
+    doctor_id: Optional[str] = None,
 ) -> AgentExecutor:
     """创建基于 LangChain Agent API 的 Martin Agent 执行器。
 
@@ -420,9 +486,12 @@ def create_agent(
             upload_to_oss,
             download_from_oss,
         ]
+        if doctor_id is not None:
+            tools.append(save_report_preference)
     return AgentExecutor(
         tools=tools,
         verbose=verbose,
         thread_id=thread_id,
         checkpointer=checkpointer,
+        doctor_id=doctor_id,
     )

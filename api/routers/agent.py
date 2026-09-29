@@ -14,6 +14,8 @@ from martin.agent.errors import CasePersistenceError
 from martin.auth.session_service import DoctorIdentity, SessionService
 from martin.services.access_service import AccessDeniedError, EntityNotFoundError
 from martin.services.thread_service import ThreadService
+from martin.memory.output_preferences import PreferenceValidationError
+from martin.memory.service import MemoryService
 from api.deps.auth import COOKIE_NAME, get_current_doctor, require_thread_access
 
 from api.models import (
@@ -81,6 +83,12 @@ def _process_attachment(agent, attachment: AttachmentInfo) -> str:
 def agent_chat(request: ChatRequest, doctor: DoctorIdentity = Depends(get_current_doctor)):
     """Agent 对话接口，调用现有 AgentExecutor 进行推理。"""
     require_thread_access(doctor, request.session_id, write=True)
+    try:
+        memory_snapshot = MemoryService().snapshot_for_thread(
+            doctor.id, request.session_id
+        )
+    except (AccessDeniedError, EntityNotFoundError) as exc:
+        raise HTTPException(status_code=403, detail="无权访问该会话") from exc
     from martin.agent.agent import create_agent
     from martin.agent.audit import AuditLogger
     from martin.agent.sessions import get_default_checkpointer
@@ -93,6 +101,11 @@ def agent_chat(request: ChatRequest, doctor: DoctorIdentity = Depends(get_curren
             thread_id=request.session_id,
             checkpointer=checkpointer,
             verbose=True,
+            doctor_id=doctor.id,
+        )
+        agent.memory_prompt = memory_snapshot.to_prompt(request.user_message)
+        agent.report_preferences = memory_snapshot.doctor_preferences.get(
+            "report_style", {}
         )
     except ValueError as exc:
         logger.warning("Agent 尚未完成配置: %s", exc)
@@ -129,6 +142,8 @@ def agent_chat(request: ChatRequest, doctor: DoctorIdentity = Depends(get_curren
         result = agent.invoke({"input": user_message})
     except CasePersistenceError as e:
         raise HTTPException(status_code=503, detail="病例保存失败，请重试。") from e
+    except PreferenceValidationError as e:
+        raise HTTPException(status_code=502, detail=str(e)) from e
     except Exception as e:
         audit_logger.log_agent_error(str(e))
         raise HTTPException(status_code=502, detail="Agent 执行失败，请稍后重试。") from e
@@ -225,11 +240,20 @@ async def agent_websocket(websocket: WebSocket, session_id: str):
                 from martin.agent.agent import create_agent
                 from martin.agent.sessions import get_default_checkpointer
 
+                memory_snapshot = MemoryService().snapshot_for_thread(
+                    doctor.id, session_id
+                )
+
                 checkpointer = get_default_checkpointer()
                 agent = create_agent(
                     thread_id=session_id,
                     checkpointer=checkpointer,
                     verbose=True,
+                    doctor_id=doctor.id,
+                )
+                agent.memory_prompt = memory_snapshot.to_prompt(user_input)
+                agent.report_preferences = memory_snapshot.doctor_preferences.get(
+                    "report_style", {}
                 )
 
                 # 处理附件：注入影像信息并生成引导消息
@@ -309,6 +333,10 @@ async def agent_websocket(websocket: WebSocket, session_id: str):
                     content=final_output,
                 ).model_dump())
 
+            except PreferenceValidationError as e:
+                await websocket.send_json(WsStatusMessage(
+                    type="error", content=str(e),
+                ).model_dump())
             except CasePersistenceError:
                 await websocket.send_json(WsStatusMessage(
                     type="error",

@@ -14,6 +14,7 @@ from typing import Dict
 from langchain_core.tools import tool
 
 from martin.agent.case_context import CaseContext
+from martin.memory.actor import current_actor_id
 from martin.vision.nodule_detector import NoduleDetector
 from martin.llm.chain import (
     _generate_template_report,
@@ -78,6 +79,40 @@ def reset_case_context(token) -> None:
         token: ``set_case_context`` 返回的 ``contextvars.Token``。
     """
     _case_context_var.reset(token)
+
+
+@tool
+def save_report_preference(
+    conclusion_first: bool = True,
+    max_words: int = 200,
+    focus: list[str] | None = None,
+    reasoning: str = "",
+) -> str:
+    """保存当前登录医生明确提出的跨会话报告风格偏好。"""
+    doctor_id = current_actor_id()
+    if doctor_id is None:
+        return "错误: 未登录医生，不能保存长期偏好。"
+    if not 50 <= max_words <= 1000 or len(focus or []) > 10:
+        return "错误: 报告偏好范围无效。"
+    from martin.memory.service import MemoryService
+
+    try:
+        MemoryService().save_doctor_preference(
+            doctor_id,
+            "report_style",
+            {
+                "conclusion_first": conclusion_first,
+                "max_words": max_words,
+                "focus": focus or [],
+            },
+        )
+    except Exception:
+        logger.warning("医生报告偏好保存失败", exc_info=True)
+        return (
+            "错误: 长期偏好保存失败；偏好仅可用于本次回答，后续会话可能无法恢复。"
+            "不得声称已保存或已记住。"
+        )
+    return "报告偏好已保存，后续会话将继续使用。"
 
 
 def _normalize_detection_result(result: Dict) -> None:

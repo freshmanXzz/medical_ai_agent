@@ -7,6 +7,7 @@ from fastapi.testclient import TestClient
 
 from api.main import app
 from martin.db import init_schema
+from martin.memory.store import close_default_store
 from scripts.seed_entity_v0 import seed_entity_v0
 
 
@@ -14,13 +15,16 @@ from scripts.seed_entity_v0 import seed_entity_v0
 def entity_db(tmp_path: Path, monkeypatch) -> Path:
     db_path = tmp_path / "app.sqlite"
     monkeypatch.setenv("MARTIN_APP_DB_PATH", str(db_path))
+    monkeypatch.setenv("MARTIN_MEMORY_DB_PATH", str(tmp_path / "memory.sqlite"))
+    close_default_store()
     init_schema(db_path)
     seed_entity_v0(
         db_path,
         doctor_a_password="TestDoctorA!2026",
         doctor_b_password="TestDoctorB!2026",
     )
-    return db_path
+    yield db_path
+    close_default_store()
 
 
 @pytest.fixture

@@ -196,3 +196,24 @@ def close_default_checkpointer() -> None:
     if _default_manager is not None:
         _default_manager.close()
         _default_manager = None
+
+
+class CheckpointDeletionError(RuntimeError):
+    """A thread checkpoint could not be removed or confirmed removed."""
+
+
+def delete_thread_checkpoints(
+    thread_id: str, checkpointer: Optional[BaseCheckpointSaver] = None
+) -> None:
+    """Use the saver's public deletion API and confirm the thread is absent."""
+    saver = checkpointer or get_default_checkpointer()
+    delete = getattr(saver, "delete_thread", None)
+    if not callable(delete):
+        raise CheckpointDeletionError("Checkpoint saver has no thread deletion API")
+    try:
+        delete(thread_id)
+        remaining = saver.get_tuple({"configurable": {"thread_id": thread_id}})
+    except Exception as exc:
+        raise CheckpointDeletionError("Checkpoint deletion failed") from exc
+    if remaining is not None:
+        raise CheckpointDeletionError("Checkpoint still exists after deletion")

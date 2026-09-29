@@ -7,6 +7,7 @@ from api.deps.auth import get_current_doctor
 from martin.auth.session_service import DoctorIdentity
 from martin.services.access_service import AccessDeniedError, EntityNotFoundError
 from martin.services.thread_service import ThreadService
+from martin.agent.sessions import CheckpointDeletionError
 
 
 router = APIRouter(prefix="/threads", tags=["Threads"])
@@ -35,3 +36,16 @@ def get_thread(thread_id: str, doctor: DoctorIdentity = Depends(get_current_doct
         raise HTTPException(status_code=404, detail="会话不存在") from exc
     except AccessDeniedError as exc:
         raise HTTPException(status_code=403, detail="无权访问该会话") from exc
+
+
+@router.delete("/{thread_id}")
+def delete_thread(thread_id: str, doctor: DoctorIdentity = Depends(get_current_doctor)):
+    try:
+        ThreadService().delete_thread(doctor.id, thread_id)
+    except EntityNotFoundError as exc:
+        raise HTTPException(status_code=404, detail="会话不存在") from exc
+    except AccessDeniedError as exc:
+        raise HTTPException(status_code=403, detail="无权删除该会话") from exc
+    except CheckpointDeletionError as exc:
+        raise HTTPException(status_code=503, detail="会话状态删除失败，请重试") from exc
+    return {"status": "deleted"}
