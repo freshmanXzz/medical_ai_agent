@@ -182,6 +182,7 @@ async function handleFileUpload(file: File) {
   try {
     analysisError.value = ''
     currentFile.value = { name: file.name, size: file.size, status: 'uploading' }; uploadProgress.value = 0
+    await chatStore.ensureThread()
     await uploadImage(file, chatStore.sessionId, (progress) => { uploadProgress.value = progress })
     currentFile.value = { name: file.name, size: file.size, status: 'analyzing' }
     const detection = await analyzeImage(chatStore.sessionId)

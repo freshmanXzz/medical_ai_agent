@@ -55,6 +55,10 @@ export const generateReport = (
   })
 
 // 会话列表
+// 服务端创建会话 Thread（Entity V0：会话必须绑定病例且由服务端生成 ID）
+export const createThread = (caseId: string) =>
+  api.post<{ thread_id: string; case_id: string }>('/threads', { case_id: caseId })
+
 export const listSessions = () => api.get('/sessions')
 
 // 会话详情
@@ -161,6 +165,37 @@ export interface KnowledgeSearchResponse {
 
 export const searchKnowledgeVectors = (query: string) =>
   api.post<KnowledgeSearchResponse>('/knowledge/search', { query })
+
+// ---------- 认证 ----------
+export interface DoctorInfo {
+  id: string
+  username: string
+  display_name: string
+}
+
+export const loginDoctor = (username: string, password: string) =>
+  api.post<DoctorInfo>('/auth/login', { username, password })
+
+export const logoutDoctor = () => api.post('/auth/logout')
+
+export const getCurrentDoctor = () => api.get<DoctorInfo>('/auth/me')
+
+// 未登录（401）时统一踢回登录页；登录请求本身除外
+api.interceptors.response.use(
+  (resp) => resp,
+  (error) => {
+    if (
+      error?.response?.status === 401 &&
+      !String(error?.config?.url || '').includes('/auth/')
+    ) {
+      localStorage.removeItem('martin_doctor')
+      if (window.location.pathname !== '/login') {
+        window.location.href = '/login'
+      }
+    }
+    return Promise.reject(error)
+  }
+)
 
 // 健康检查
 export function healthCheck() {

@@ -1,6 +1,6 @@
 import { defineStore } from 'pinia'
 import { ref } from 'vue'
-import { chatWithAgent, getSessionDetail, AgentWebSocket } from '../api'
+import { chatWithAgent, getSessionDetail, createThread, AgentWebSocket } from '../api'
 import { useCaseStore } from './caseStore'
 
 export interface ToolCallInfo {
@@ -33,17 +33,14 @@ function initialMessages(): ChatMessage[] {
   return [{ role: 'assistant', content: WELCOME_MESSAGE }]
 }
 
-function createSessionId(): string {
-  if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
-    return crypto.randomUUID()
-  }
-  return `session_${Date.now()}`
-}
+// 会话 Thread 由服务端创建并绑定病例（默认病例 C002：8mm 结节 + 6mm 历史对比）
+const DEFAULT_CASE_ID = 'C002'
+
 
 export const useChatStore = defineStore('chat', () => {
   const messages = ref<ChatMessage[]>(initialMessages())
   const loading = ref(false)
-  const sessionId = ref(createSessionId())
+  const sessionId = ref('')
   const error = ref<string | null>(null)
   const timeline = ref<TimelineEvent[]>([])
 
@@ -63,6 +60,7 @@ export const useChatStore = defineStore('chat', () => {
     messages.value.push({ role: 'user', content: displayMessage })
 
     try {
+      await ensureThread()
       // 优先尝试 WebSocket 流式通信
       const ws = new AgentWebSocket(sessionId.value)
 
@@ -177,10 +175,20 @@ export const useChatStore = defineStore('chat', () => {
     return res.data
   }
 
-  function newSession() {
-    sessionId.value = createSessionId()
+  // 确保存在服务端创建的 Thread；没有则按默认病例创建
+  async function ensureThread(): Promise<string> {
+    if (!sessionId.value) {
+      const res = await createThread(DEFAULT_CASE_ID)
+      sessionId.value = res.data.thread_id
+    }
+    return sessionId.value
+  }
+
+  async function newSession() {
+    sessionId.value = ''
     messages.value = initialMessages()
     error.value = ''
+    await ensureThread()
     return sessionId.value
   }
 
@@ -188,6 +196,7 @@ export const useChatStore = defineStore('chat', () => {
     messages,
     loading,
     sessionId,
+    ensureThread,
     error,
     timeline,
     sendMessage,
