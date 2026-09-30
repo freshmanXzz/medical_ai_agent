@@ -1,261 +1,161 @@
-# Martin — AI Medical Imaging Copilot for Clinicians
+# Martin — 面向临床医生的 AI 医学影像工作站
 
-> 面向临床医生的 AI 医学影像辅助分析智能体：MONAI 影像检测 + RAG 知识增强 + LangChain Agent 编排 + DeepSeek 推理
+> 多医生登录 · 患者/病例实体库 · 医学 Agent（MONAI 检测 + RAG 检索 + 报告生成）· 跨会话临床记忆
 
-Martin 是一个开源的医学影像 AI Copilot，面向**呼吸科 / 胸外科 / 影像科医生**，以肺结节检测为切入点，实现从**影像感知 → 知识检索 → 智能推理 → 报告生成**的完整辅助分析流程。
+Martin 是面向**呼吸科 / 胸外科 / 影像科医生**的 AI 医学影像辅助分析系统：医生登录后按患者→病例组织数据，围绕病例与 Agent 对话，完成 **CT 检测 → 知识检索 → 报告生成**，并跨会话记住医生偏好与患者纵向观察。
 
-**核心定位：** 不是面向患者的医疗聊天机器人，而是医生工作流的 AI 影像辅助分析智能体。
+**核心定位：** 不是面向患者的医疗聊天机器人，而是医生工作流的 AI 辅助分析智能体——所有结论标注数据边界，不做诊断。
 
 ---
 
 ## ✨ Features
 
-- 👁 **3D 肺结节检测** — 基于 MONAI RetinaNet，支持 NIfTI / MetaImage 格式
-- 🔍 **RAG 循证诊断** — ChromaDB + BGE 本地向量库，引用 Lung-RADS 等权威指南
-- 🤖 **Agent 智能编排** — LangChain `create_agent`，多工具自主规划、调用与会话持久化
-- 🧠 **会话级病例上下文** — `CaseContext` 按 `thread_id` 持久化患者信息、影像、结节、知识摘要与临床备注
-- 📄 **多类型报告生成** — brief / detailed / research 三档，LCEL 声明式编排
-- 💾 **会话与病例恢复** — 官方 `SqliteSaver` 保存历史会话；Web“病例记录”可恢复原会话并继续分析、生成报告
-- 🌐 **临床影像工作站** — Vue 3 + FastAPI 三栏工作区（检查与发现 / 影像分析区 / 诊断信息链），Martin 作为可收起 Copilot
-- 📎 **CT 上传与分析** — 左侧检查栏提供主上传入口；Copilot 中保留附件上传作为补充入口
-- ⚡ **WebSocket 实时过程** — AgentTimeline 展示工具调用、观察结果、推理状态
-- 🗄 **MinIO 对象存储** — 医学影像文件统一存储，CaseContext 关联 file_id
-- 📚 **知识库原文查看** — 知识摘要以引用条目展示，点击"查看原文"弹出 Drawer 阅读完整指南文档
-- 📝 **医疗审计溯源** — reasoning 字段 + JSONL 审计日志，全程可追溯
-- 🖥 **GPU 加速推理** — CUDA 加速，支持本地模型部署
+**工作站与多医生协作（Entity V0）**
+
+- 👨‍⚕️ **医生账号与服务端会话** — Argon2id 密码哈希、opaque session（Cookie 存 token、库只存哈希）、HttpOnly/SameSite
+- 🧑‍🤝‍🧑 **患者 / 病例 / 会话实体库** — SQLite 10 张表；会话 Thread 由服务端创建并绑定病例，REST/WS 入口统一校验医生归属
+- 🔐 **授权访问控制** — `doctor_patient_access` 决定可见性，`read_only` 可读不可写，撤销立即生效；全部变更留审计
+- 📋 **临床事实链** — Finding / Attachment / Report 独立成行，**追加保存不覆盖**：不同时间的结节观察按时间序列并存（Demo B 纵向对比的基础）
+
+**医学 Agent 核心**
+
+- 👁 **3D 肺结节检测** — MONAI RetinaNet，NIfTI / MetaImage 格式，MinIO 对象存储
+- 🔍 **RAG 循证检索** — ChromaDB + BGE 本地向量库（`models/embedding/bge-small-zh-v1.5` 离线加载）
+- 📄 **多档报告生成** — brief / detailed / research，LCEL 编排；测量值缺失输出"未提供"，不编造数字
+- 📝 **医疗审计溯源** — reasoning 剥离 + JSONL 审计日志
+
+**跨会话临床记忆（SqliteStore V1，2026-09-30 live 验收通过）**
+
+- 🧠 **医生偏好即硬约束** — "结论前置、200 字以内"这类偏好经服务端保存后成为**输出校验标准**（按全部字符计数），违反自动重写，重写不得改动测量值/日期
+- 📈 **患者纵向记忆** — 已确认 Finding 确定性投影为 `observation:{finding_id}`，不同时间点并存；当前病例事实与历史记忆分区注入 Prompt
+- 🛡 **故障降级** — 记忆库不可用时明确告知模型与用户，拒绝编造既往数据
+
+**工作站**
+
+- 🌐 Vue 3 + FastAPI 三栏工作区，登录页、病例工作台、报告页、会话历史、知识库管理
+- ⚡ WebSocket 实时推送工具调用 / 观察结果；轴位阅片定位（十字线 + 边界框）
 
 ---
 
-## 🏗 Architecture
+## 🏗 三库架构（边界见 docs/refactor/ADR-001）
 
-![Martin 项目分层架构图](docs/architecture.svg)
+| 库 | 文件 | 职责 |
+|---|---|---|
+| 业务库（事实源） | `data/app.sqlite` | 10 张表：users / patients / cases / threads / doctor_patient_access / attachments / findings / reports / auth_sessions / case_change_audit |
+| 会话库 | `data/sessions.sqlite` | LangGraph `SqliteSaver` checkpoint；`threads.id` 即 checkpoint 的 `thread_id`（一个 UUID 两用） |
+| 记忆库 | `data/memory.sqlite` | LangGraph `SqliteStore`：医生偏好、患者纵向观察、病例记忆；由业务库授权后读写 |
 
-
-**两层记忆架构：**
-
-| 层级 | 实现 | 作用 |
-|------|------|------|
-| 对话记忆 | LangGraph `SqliteSaver` | 保存完整消息历史与 LangGraph checkpoint，支持重启恢复 |
-| 病例记忆 | `CaseContext`（同一 checkpoint 的结构化状态） | 患者信息 / 影像 / 结节 / 知识摘要 / 临床备注 / 检测完成状态 |
+删除纪律：删业务 Thread 前必须先删对应 checkpoint，禁止孤儿 checkpoint。
 
 ---
 
-## 🔄 Workflow
-
-```
-临床医生在 Vue 工作台上传 CT / 提出病例问题
-  ↓  REST `/api/agent/chat` 或 WebSocket `/api/ws/agent/{session_id}`
-FastAPI 路由接收请求，并按 session_id 取得 AgentExecutor
-  ↓
-AgentExecutor.invoke()
-  ├─ 从 SQLite LangGraph checkpoint 恢复 CaseContext
-  ├─ 注入动态病例上下文与系统提示词
-  └─ LangChain `create_agent` 驱动的 LangGraph ReAct 循环：
-       1. DeepSeek 判断是否需要工具
-       2. 调用影像分析 / 知识检索 / 报告生成 / 更新病例 / MinIO 上传下载
-       3. 工具结果写入 ToolMessage，必要时继续推理
-       4. 生成最终临床辅助回答
-  ↓
-同步 CaseContext、保存 checkpoint 并写入审计 / 运行日志
-  ↓
-REST 返回结果或 WebSocket 推送工具状态、回答与报告
-```
-
----
-
-## 🛠 Tech Stack
-
-| Component | Technology |
-|-----------|------------|
-| Agent 框架 | LangChain `create_agent` + LangGraph 运行时 |
-| Web 前端 | Vue 3 + Vite + Pinia + Element Plus |
-| Web 后端 | FastAPI + REST + WebSocket |
-| 实时通信 | WebSocket（Agent 工具调用过程推送） |
-| 对象存储 | MinIO（医学影像文件存储） |
-| LLM | DeepSeek API（兼容 OpenAI 协议） |
-| RAG 向量库 | ChromaDB（本地持久化） |
-| 知识库原文 | `knowledge_base/` 目录（Markdown 格式），`GET /api/knowledge/document/{filename}` |
-| Embedding | BGE-Small-ZH-v1.5（本地部署） |
-| 视觉模型 | MONAI RetinaNet 3D |
-| 深度学习 | PyTorch + CUDA |
-| 图像格式 | NIfTI / MetaImage / DICOM |
-| 审计日志 | JSONL |
-
----
-
-## 🚀 Installation
+## 🚀 Quick Start
 
 ### 环境要求
 
-- Python ≥ 3.10
-- PyTorch ≥ 2.0 + CUDA（推荐）
-- ≥ 8GB GPU 显存
-- Node.js ≥ 18（构建 Web 前端时需要）
+- Python ≥ 3.10；Node.js ≥ 18（构建前端）；GPU + CUDA（仅 MONAI 检测需要）
+- 本地 LLM 凭据（火山方舟 ark 端点或任意 OpenAI 兼容服务）
 
-### 安装步骤
+### 1. 安装
 
 ```bash
-# 克隆项目
-git clone <repo-url>
+git clone https://github.com/freshmanXzz/medical_ai_agent.git
 cd medical_ai_agent
 
-# 创建虚拟环境（推荐 conda）
-conda create -n martin python=3.10
-conda activate martin
-
-# 安装 PyTorch（CUDA 版）
-pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu118
-
-# 安装项目依赖
+conda create -n martin python=3.10 && conda activate martin
+# GPU 环境先装 PyTorch：pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu118
 pip install -r requirements.txt
-
-# 配置环境变量
-export DEEPSEEK_API_KEY="your-api-key"
-export DEEPSEEK_BASE_URL="https://api.deepseek.com/v1"
+pip install -e .            # 打包 schema.sql 等资源文件
 ```
 
-### 下载模型
-
-1. **MONAI 检测模型**：从 MONAI Model Zoo 下载 `lung_nodule_ct_detection`，放入 `models/vision/`
-2. **BGE 嵌入模型**：下载 `bge-small-zh-v1.5`，放入 `models/embedding/`
-
-### 导入知识库
+### 2. 配置凭据
 
 ```bash
-python scripts/import_knowledge.py
+export DEEPSEEK_API_KEY="your-key"        # 火山方舟 ark-... 或其他兼容 key
+export DEEPSEEK_BASE_URL="https://ark.cn-beijing.volces.com/api/plan/v3"
+export DEEPSEEK_MODEL="deepseek-v4.1-flash"
 ```
 
----
-
-## ⚡ Quick Start
-
-### 方式 1：Agent 对话模式
+### 3. 建库 + 种子数据
 
 ```bash
-# 推荐：显式启动带会话管理的多轮 Agent
+export MARTIN_SEED_DOCTOR_A_PASSWORD="DoctorA!2026"
+export MARTIN_SEED_DOCTOR_B_PASSWORD="DoctorB!2026"
+python -m scripts.init_app_db
+python -m scripts.seed_entity_v0
+```
+
+种子账号：`doctor_a`（授权 P001：病例 C001/C002）、`doctor_b`（授权 P002：病例 C003）。C002 含 8mm 结节 + C001 历史 6mm 对比数据，适合演示纵向记忆。
+
+### 4. 构建前端并启动
+
+```bash
+cd frontend && npm install && npm run build && cd ..
+python -m martin web          # 默认 127.0.0.1:8000
+```
+
+浏览器打开 `http://127.0.0.1:8000` 登录即可。
+
+### 5.（可选，CT 上传检测需要）MinIO 与模型权重
+
+```bash
+minio server ./data/minio --console-address ":9001"   # 默认 minioadmin/minioadmin，桶 martin-medical
+```
+
+| 模型 | 摆放路径 |
+|---|---|
+| MONAI 检测权重 | `models/vision/lung_nodule_ct_detection-0.6.8/lung_nodule_ct_detection-0.6.8/models/model.pt`（注意目录嵌套两层） |
+| BGE 嵌入模型 | `models/embedding/bge-small-zh-v1.5`（存在则离线加载） |
+
+### 命令行模式（不启 Web）
+
+```bash
 python -m martin agent
-
-# 兼容入口：也会启动同一套交互式 Agent
-python main.py
 ```
 
-启动后可在对话中直接提问，Agent 会自主决定调用工具：
-
-| 用户提问 | Agent 行为 |
-|---------|-----------|
-| "8mm的结节是怎么样的" | → `retrieve_knowledge(query=...)` 检索知识库 |
-| "分析这张CT: data/test.nii.gz" | → `analyze_image` → `retrieve_knowledge` → `generate_report` |
-| "患者55岁男性，吸烟10年" | → `update_case_context` 更新病例信息 |
-
-Agent 会模拟医生门诊的沟通方式：先了解就诊原因和患者信息，再结合 CT 检测、医学知识库完成解释与病例报告。它会明确说明自己是 AI 智能体，不代替执业医生诊断。普通中文或英文都直接输入；只有以 `/` 开头的内容才作为系统命令处理。
-
-> 工具调用详情和推理过程写入 `log/agent_thinking/YYYY-MM-DD.log`；模型日志、第三方警告和进度条写入 `log/runtime/YYYY-MM-DD.log`，不会进入问诊界面。
-
-### 
-
-```b
-```
-
-### 方式 2：Web Copilot 工作台（推荐）
-
-Martin Web 端已升级为**面向医生的 AI 医学影像辅助分析工作站**。主工作区围绕病例审阅与诊断依据组织，Martin 对话助手按需展开，不再以聊天窗口作为页面中心。
-
-首次运行或前端代码更新后，先构建 Vue 页面：
-
-```bash
-cd frontend
-npm install
-npm run build
-cd ..
-```
-
-然后在上一步创建并安装依赖的环境中启动 Martin Web 服务：
-
-```bash
-# 使用安装步骤中创建的 Conda 环境
-conda activate martin
-python -m martin web
-
-# 或在任意已激活的 Python 虚拟环境中直接执行
-python -m martin web
-```
-
-需要使用 CT 文件上传或 OSS 影像分析时，先安装 MinIO 并在独立终端启动本机服务：
-
-```bash
-minio server ./data/minio --console-address ":9001"
-```
-
-### 运行效果
-
-**新版临床影像工作站：点击左侧“结节 1”，即可自动跳转到对应中心层，并以红色十字线和边界框定位 AI 检测候选；可在中央区域继续进行 CT 轴位复核。**
-
-![恢复历史病例后的 Martin 临床影像工作站](docs/images/workstation-restored-case.png)
-
-> 截图使用无患者身份信息的演示病例；当前“影像分析区”展示 AI 的结构化发现，不伪装为真实 CT 切片阅片器。
-
-**基于 CaseContext 生成的辅助分析报告：**
-
-![肺部 CT 智能辅助病例报告](docs/case_report_demo.png)
-
-**知识库文档管理：内置指南、资料来源、向量化状态和上传入口集中管理。截图仅展示项目内置资料。**
-
-![知识库文档管理页面](docs/images/knowledge-document-management.png)
-
-
-**CLI 历史会话查看：**
-
-![多轮对话与知识库检索](docs/session_history_demo.svg)
+斜杠命令管理会话：`/list` `/open <编号>` `/switch <编号>` `/new` `/exit`；其余输入直接交给 Agent。
 
 ---
 
-## 🗂️ 会话历史与病例恢复
+## 🧪 测试与验收
 
-Agent 会将会话保存到 `data/sessions.sqlite`（LangGraph 官方 `SqliteSaver` 管理），应用重启后仍可继续查看历史会话。每个会话以 `thread_id` 隔离；病例上下文与消息历史随同 checkpoint 保存。
+```bash
+python -m pytest -q --basetemp=./.pytest_tmp   # basetemp 规避部分 Windows 临时目录权限问题
+```
 
-| 命令 | 功能 |
-|------|------|
-| `/list` | 列出所有历史会话 |
-| `/open <编号>` | 查看指定会话的完整对话记录 |
-| `/switch <编号>` | 切换到指定会话并继续对话 |
-| `/new` | 创建并切换到新会话 |
-| `/back` | 返回当前会话 |
-| `/help` | 查看系统命令帮助 |
-| `/exit` | 退出并保存会话 |
+- 全量基线：**280 passed / 1 skipped / 0 failed**（2026-09-30）
+- 真实 LLM 验收脚本：`validation_scripts/`（独立端口 8001 + 隔离三库，不触碰正式数据），用法见该目录 README
+- 各阶段验收记录：`docs/refactor/`
 
-例如，输入 `list` 会作为自然语言交给 Agent；输入 `/list` 才会列出历史会话。未知的斜杠命令会显示“不支持的系统命令”。
-
-Web 端的“病例记录”提供同样的会话恢复能力：选择“继续分析”后，前端请求会话详情并恢复消息与 `CaseContext`。其中包含的影像路径、结节列表和检测完成状态会重建为报告输入，因此可从历史病例直接进入“报告工作台”继续生成报告。为兼容早期 SQLite 数据，已有结节列表的旧会话也会被识别为已检测。
-
-## 📚 Documentation
-
-| 文档 | 说明 |
-|------|------|
-| [🏗 Architecture](docs/ARCHITECTURE.md) | 系统架构设计、模块职责、数据流 |
-| [🛠 Development](docs/DEVELOPMENT.md) | 开发过程、技术决策、踩坑记录 |
-| [📚 Learning Summary](docs/LEARNING_SUMMARY.md) | 学习笔记与心得体会 |
-| [📖 Learning Guide](docs/LEARNING_GUIDE.md) | 当前代码调用链、模块作用与学习顺序 |
-| [🧹 Cleanup Audit](docs/CLEANUP_AUDIT.md) | 重复测试、假通过风险和文件清理候选 |
-| [🗺 Roadmap](docs/ROADMAP.md) | 未来规划与演进路线 |
-| [🌐 Agent Flow](docs/agent_flow.html) | 交互式 Agent 调用流程可视化（浏览器打开） |
+**当前已知边界：** 未放置 MONAI 权重时检测返回失败提示（不伪装）；知识库需先上传文档才有检索结果；报告模板的检测类字段在无 CT 会话中为"未提供"（业务 Finding 回填在路线图）。
 
 ---
 
-## 🗺 Future Work
+## 🗂 文档地图
 
-| 状态 | 方向 | 说明 |
-|------|------|------|
-| ✅ | 单模态肺结节检测 | MONAI RetinaNet 3D |
-| ✅ | RAG 知识增强 | ChromaDB + BGE 本地向量库 |
-| ✅ | Agent 多轮对话 | LangGraph + SqliteSaver |
-| ✅ | 结构化病例记忆 | CaseContext |
-| ✅ | Session 持久化 | SqliteSaver + CLI 历史管理 |
-| 🔲 | 多模态融合 | 融合 DICOM 元数据、病理报告等 |
-| 🔲 | 多 Agent 协作 | 检测 Agent + 诊断 Agent + 报告 Agent |
-| 🔲 | 分割能力 | 增加结节分割与体积测量 |
-| ✅ | Web UI | Vue 3 + FastAPI 临床影像工作站、可收起 Copilot、病例恢复与报告续写 |
-| ✅ | 知识库管理 | Web 上传、自动向量化、删除与全量重建 |
-| 🔲 | 批量处理 | 支持队列批量分析 |
+| 文档 | 内容 |
+|---|---|
+| [AGENT.md](AGENT.md) | 开发规则：环境原则、代码边界、验证诚实性、Git 安全 |
+| [docs/plans/ROADMAP.md](docs/plans/ROADMAP.md) | **权威路线图**：基线、V1.1 待办、全链路实测计划、V2 与远期方向 |
+| [docs/plans/REFACTOR_PROGRESS.md](docs/plans/REFACTOR_PROGRESS.md) | 批次执行日志 + 最新交班状态块 |
+| [docs/plans/AGENT_HANDOFF_PROTOCOL.md](docs/plans/AGENT_HANDOFF_PROTOCOL.md) | 多 agent 交替开发的双向交接规则 |
+| [docs/plans/MARTIN_ENTITY_V0_EXECUTION_PLAN.md](docs/plans/MARTIN_ENTITY_V0_EXECUTION_PLAN.md) | Entity V0 执行计划（决策 / DDL / 分批 / 验收门槛） |
+| [docs/refactor/](docs/refactor/) | 各阶段验收记录（Entity V0、SqliteStore V1、live 三场景）与 ADR |
+| [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) / [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md) | 架构设计与开发记录（历史） |
+| `LOCAL_NOTES.md`（不入库） | 本机环境事实；换机器不存在属正常，按需自建 |
+
+---
+
+## 🗺 演进状态（详见 ROADMAP）
+
+| 状态 | 里程碑 |
+|---|---|
+| ✅ | 多医生实体库 + 授权 + 事实链 + checkpoint 联动（Entity V0） |
+| ✅ | 跨会话临床记忆：医生偏好硬约束 / 患者纵向观察 / 故障降级（SqliteStore V1） |
+| ✅ | 前端登录 + 服务端会话生命周期 |
+| 🔲 | 报告模板接业务 Finding 回填（V1.1） |
+| 🔲 | MONAI 权重机器上的 UI 全链路实测 |
+| 🔲 | SqliteStore V2（范围待执行计划定义） |
 
 ---
 
