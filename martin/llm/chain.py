@@ -16,6 +16,8 @@
 
 import json
 import logging
+import math
+from numbers import Real
 from typing import Any, Dict, Optional
 
 from langchain_core.output_parsers import StrOutputParser
@@ -182,6 +184,15 @@ def _build_nodules_detail(detection_result: Dict, report_type: str) -> str:
         return _format_nodules_detailed(nodules)
 
 
+def _is_measurement(value: Any) -> bool:
+    """Missing measurements are not zeros or estimated detector confidence."""
+    return isinstance(value, Real) and not isinstance(value, bool) and math.isfinite(value)
+
+
+def _format_measurement(value: Any, spec: str = ".2f") -> str:
+    return format(value, spec) if _is_measurement(value) else "未提供"
+
+
 def _format_nodules_brief(nodules: list) -> str:
     """格式化结节列表（简洁版）。
 
@@ -197,8 +208,8 @@ def _format_nodules_brief(nodules: list) -> str:
     for nodule in nodules[:5]:
         lines.append(
             f"- 结节 {nodule['index']}: "
-            f"直径 {nodule['diameter']:.2f}mm, "
-            f"置信度 {nodule['score']:.2%}"
+            f"直径 {_format_measurement(nodule.get('diameter'))}mm, "
+            f"置信度 {_format_measurement(nodule.get('score'), '.2%')}"
         )
     if len(nodules) > 5:
         lines.append(f"- ... 还有 {len(nodules) - 5} 个结节")
@@ -218,16 +229,22 @@ def _format_nodules_detailed(nodules: list) -> str:
     """
     lines = []
     for nodule in nodules:
-        center = nodule.get("center", {})
-        dims = nodule.get("dimensions", {})
+        center = nodule.get("center") or {}
+        dims = nodule.get("dimensions") or {}
+        score = nodule.get("score")
+        confidence = (
+            f"{score:.4f} ({score:.2%})" if _is_measurement(score) else "未提供"
+        )
         lines.append(
             f"\n结节 {nodule['index']}:"
-            f"\n  - 位置: ({center.get('x', 0):.2f}, "
-            f"{center.get('y', 0):.2f}, {center.get('z', 0):.2f}) mm"
-            f"\n  - 尺寸: {dims.get('width', 0):.2f} x "
-            f"{dims.get('height', 0):.2f} x {dims.get('depth', 0):.2f} mm"
-            f"\n  - 最大直径: {nodule['diameter']:.2f} mm"
-            f"\n  - 检测置信度: {nodule['score']:.4f} ({nodule['score']:.2%})"
+            f"\n  - 位置: ({_format_measurement(center.get('x'))}, "
+            f"{_format_measurement(center.get('y'))}, "
+            f"{_format_measurement(center.get('z'))}) mm"
+            f"\n  - 尺寸: {_format_measurement(dims.get('width'))} x "
+            f"{_format_measurement(dims.get('height'))} x "
+            f"{_format_measurement(dims.get('depth'))} mm"
+            f"\n  - 最大直径: {_format_measurement(nodule.get('diameter'))} mm"
+            f"\n  - 检测置信度: {confidence}"
         )
     return "\n".join(lines)
 
@@ -246,11 +263,13 @@ def _format_nodules_research(nodules: list) -> str:
     lines = ["索引 | 直径(mm) | 置信度 | X | Y | Z"]
     lines.append("-----|----------|--------|-----|-----|-----")
     for nodule in nodules:
-        center = nodule.get("center", {})
+        center = nodule.get("center") or {}
         lines.append(
-            f"{nodule['index']} | {nodule['diameter']:.2f} | "
-            f"{nodule['score']:.4f} | {center.get('x', 0):.2f} | "
-            f"{center.get('y', 0):.2f} | {center.get('z', 0):.2f}"
+            f"{nodule['index']} | {_format_measurement(nodule.get('diameter'))} | "
+            f"{_format_measurement(nodule.get('score'), '.4f')} | "
+            f"{_format_measurement(center.get('x'))} | "
+            f"{_format_measurement(center.get('y'))} | "
+            f"{_format_measurement(center.get('z'))}"
         )
     return "\n".join(lines)
 
@@ -317,16 +336,7 @@ def _build_template_brief(image_name: str, total_nodules: int, nodules: list) ->
     if total_nodules == 0:
         nodule_text = "未检测到结节。"
     else:
-        lines = []
-        for nodule in nodules[:5]:
-            lines.append(
-                f"- 结节 {nodule['index']}: "
-                f"直径 {nodule['diameter']:.2f}mm, "
-                f"置信度 {nodule['score']:.2%}"
-            )
-        if len(nodules) > 5:
-            lines.append(f"- ... 还有 {len(nodules) - 5} 个结节")
-        nodule_text = "\n".join(lines)
+        nodule_text = _format_nodules_brief(nodules)
 
     return (
         f"医学报告摘要\n"
@@ -346,21 +356,19 @@ def _build_template_detailed(image_name: str, total_nodules: int, nodules: list)
         nodule_text = "未检测到肺部结节。"
         impression = "胸部CT检查未见明显异常结节。"
         recommendation = "建议定期体检，如有不适及时就医。"
+    elif any(
+        not _is_measurement(nodule.get(field))
+        for nodule in nodules
+        for field in ("diameter", "score")
+    ):
+        nodule_text = _format_nodules_detailed(nodules)
+        impression = (
+            "结节直径或检测置信度资料不完整，缺失字段已标注为未提供；"
+            "不能根据缺失的检测置信度判断风险，当前模板不作风险分级。"
+        )
+        recommendation = "请由医生结合原始影像和完整临床资料复核后决定后续处理。"
     else:
-        nodule_lines = []
-        for nodule in nodules:
-            center = nodule.get("center", {})
-            dims = nodule.get("dimensions", {})
-            nodule_lines.append(
-                f"\n结节 {nodule['index']}:"
-                f"\n  - 位置: ({center.get('x', 0):.2f}, "
-                f"{center.get('y', 0):.2f}, {center.get('z', 0):.2f}) mm"
-                f"\n  - 尺寸: {dims.get('width', 0):.2f} x "
-                f"{dims.get('height', 0):.2f} x {dims.get('depth', 0):.2f} mm"
-                f"\n  - 最大直径: {nodule['diameter']:.2f} mm"
-                f"\n  - 检测置信度: {nodule['score']:.4f} ({nodule['score']:.2%})"
-            )
-        nodule_text = "\n".join(nodule_lines)
+        nodule_text = _format_nodules_detailed(nodules)
 
         # 生成诊断结论
         high_risk = sum(
@@ -428,6 +436,7 @@ def _build_template_research(
     image_name: str, total_nodules: int, nodules: list
 ) -> str:
     """生成科研版模板报告。"""
+    statistics_note = ""
     if total_nodules == 0:
         nodule_text = "未检测到结节。"
         avg_diameter = 0.0
@@ -435,30 +444,28 @@ def _build_template_research(
         max_diameter = 0.0
         min_diameter = 0.0
     else:
-        # 表格数据
-        table_lines = ["索引 | 直径(mm) | 置信度 | X | Y | Z"]
-        table_lines.append("-----|----------|--------|-----|-----|-----")
-        for nodule in nodules:
-            center = nodule.get("center", {})
-            table_lines.append(
-                f"{nodule['index']} | {nodule['diameter']:.2f} | "
-                f"{nodule['score']:.4f} | {center.get('x', 0):.2f} | "
-                f"{center.get('y', 0):.2f} | {center.get('z', 0):.2f}"
-            )
-        nodule_text = "\n".join(table_lines)
+        nodule_text = _format_nodules_research(nodules)
 
-        # 统计分析
-        diameters = [n["diameter"] for n in nodules]
-        scores = [n["score"] for n in nodules]
-        avg_diameter = sum(diameters) / len(diameters)
-        avg_score = sum(scores) / len(scores)
-        max_diameter = max(diameters)
-        min_diameter = min(diameters)
+        # 仅统计实际提供的测量，不把缺失数据当零纳入平均值。
+        diameters = [n["diameter"] for n in nodules if _is_measurement(n.get("diameter"))]
+        scores = [n["score"] for n in nodules if _is_measurement(n.get("score"))]
+        avg_diameter = sum(diameters) / len(diameters) if diameters else None
+        avg_score = sum(scores) / len(scores) if scores else None
+        max_diameter = max(diameters) if diameters else None
+        min_diameter = min(diameters) if diameters else None
+        if len(diameters) != len(nodules) or len(scores) != len(nodules):
+            statistics_note = (
+                f"- 有效数据: 直径 {len(diameters)}/{len(nodules)}，"
+                f"置信度 {len(scores)}/{len(nodules)}；统计仅包含已提供值。\n"
+            )
 
     if total_nodules > 0:
-        data_quality = (
-            "高" if avg_score > 0.9 else "中" if avg_score > 0.7 else "低"
-        )
+        if len(scores) != len(nodules) or avg_score is None:
+            data_quality = "资料不完整，不能依据缺失的置信度判断"
+        else:
+            data_quality = (
+                "高" if avg_score > 0.9 else "中" if avg_score > 0.7 else "低"
+            )
         research_suggestion = (
             "建议进一步研究" if total_nodules > 0 else "未检测到异常"
         )
@@ -478,10 +485,11 @@ def _build_template_research(
         f"- 分析方法: AI结节检测\n\n"
         f"【检测统计】\n"
         f"- 结节总数: {total_nodules}\n"
-        f"- 平均直径: {avg_diameter:.2f} mm\n"
-        f"- 平均置信度: {avg_score:.4f}\n"
-        f"- 最大直径: {max_diameter:.2f} mm\n"
-        f"- 最小直径: {min_diameter:.2f} mm\n\n"
+        f"- 平均直径: {_format_measurement(avg_diameter)} mm\n"
+        f"- 平均置信度: {_format_measurement(avg_score, '.4f')}\n"
+        f"- 最大直径: {_format_measurement(max_diameter)} mm\n"
+        f"- 最小直径: {_format_measurement(min_diameter)} mm\n"
+        f"{statistics_note}\n"
         f"【结节详细数据】\n"
         f"{nodule_text}\n\n"
         f"【数据质量评估】\n"

@@ -250,3 +250,32 @@ git status --short --branch
 
 ### 尚未验证
 - Batch 5 事实链与字段映射、Batch 6 checkpoint 生命周期和完整回归仍待实施；外部 BGE/MONAI 资产缺失不变。
+
+## 2026-09-30 — SqliteStore V1 live 重验（A/C 修复后）
+
+### 基线依据
+- 2026-09-29 live 验收 NOT ACCEPTED（A FAIL / B PASS / C FAIL）。工作树中已有修复：偏好硬校验+锚点保护+失败如实上报（agent.py / output_preferences.py）、报告链空值兼容（chain.py）、Store 降级上下文进模型（snapshot available=False，de7ff8f 已提交）。
+
+### 已修改
+- 无新增生产代码改动；本轮为独立重验。验收脚本仅将 8000 常驻服务健康检查改为非致命观测项（本轮无服务运行）。
+
+### 已运行 / 已测试 / 已通过
+- 全量离线回归：**280 passed / 1 skipped / 0 failed**（含新增修复测试），日志 `validation/v1-fix-full-20260930.log`。
+- live 三场景（真实 REST + deepseek-v4.1-flash + 隔离合成库）：B PASS（结构 7/7 + 语义复核 6mm→8mm/+2mm 无混用）；C PASS（降级上下文真实进入模型、模型真实调用、明确说明记忆不可用、拒绝编造）；A 7/8——偏好保存/检索/注入/结论前置/毛刺征/报告空值兼容全过，仅 at_most_200_chars 失败。
+- 产物：`validation/store-v1-live-20260930-100033/`（evidence.json + audit + 隔离三库）。
+
+### 尚未验证 / 待决定
+- A 字数口径分歧：实现 chinese_length 计汉字（126 字达标），验收标准 len() 计全部字符（205 超限）。属"200字以内"需求定义未对齐，不能靠改单方静默通过。需人工定口径后重验 A 一次，再定 ACCEPTED；不扩大到 V2。
+
+## 2026-09-30 — SqliteStore V1 live 定验：ACCEPTED
+
+### 已修改（口径裁定后）
+- Martin 裁定"N 字以内"= 全部字符计数（含数字/单位/标点）。实现收紧：`output_preferences.chinese_length` → `answer_length`（len 全字符）；Prompt 文案改为"不超过 N 个字符（含数字、单位与标点）"；`tests/memory/test_store_v11_preferences.py`、`tests/memory/test_store_v1_integration.py` 断言同步改写，并新增 live A 实际形态（205 全字符）回归用例。
+
+### 已运行 / 已测试 / 已通过
+- 口径收紧后离线全量：**280 passed / 1 skipped / 0 failed**（`validation/v1-criterion-full-20260930.log`）。
+- live 定验（同脚本同标准，`validation/store-v1-live-20260930-101832/`）：**A 8/8 PASS（119 字符 ≤ 200，结论前置，缺失项如实声明）**；B 7/7 PASS（6mm→8mm/+2mm 无混用）；C 5/5 PASS（模型真实调用、明确 store_unavailable、拒绝编造）。三场景语义复核均过。
+
+### 阶段决定
+- **SqliteStore V1 = ACCEPTED（2026-09-30）**。2026-09-29 首轮全部失败根因（A 模型不守约束+报告链崩溃、C 守卫拦截模型、字数口径）已全部关闭。
+- 下一步：按执行计划进入 V2。修复代码与文档当前在工作树未提交，待 Martin 确认后提交推送。

@@ -9,6 +9,7 @@ from langgraph.checkpoint.sqlite import SqliteSaver
 from pydantic import PrivateAttr
 
 from martin.db import transaction
+from martin.agent.sessions import SessionManager
 from martin.memory.namespaces import patient_memory_ns
 from martin.memory.service import MemoryService
 from martin.memory.store import get_default_store
@@ -53,6 +54,8 @@ class PromptAwareModel(BaseChatModel):
             return ChatResult(generations=[ChatGeneration(message=message)])
         if "以后报告" in question:
             answer = "报告偏好已保存。"
+        elif "store_unavailable" in prompt:
+            answer = "当前结节 8mm。历史记忆不可用，无法可靠比较本次与既往变化。"
         elif "上次" in question and '"finding_id": "F001"' in prompt:
             answer = "历史 6mm，本次 8mm，增加 2mm；仍需医生结合原始影像判断。"
         else:
@@ -77,6 +80,15 @@ def _thread(client, case_id):
     response = client.post("/api/threads", json={"case_id": case_id})
     assert response.status_code == 200
     return response.json()["thread_id"]
+
+
+def _receive_final(ws):
+    for _ in range(12):
+        event = ws.receive_json()
+        assert event["type"] != "error", event
+        if event["type"] == "final":
+            return event["content"]
+    raise AssertionError("WebSocket did not deliver a final answer")
 
 
 def _use_model_and_saver(monkeypatch, saver, model, tmp_path):
@@ -129,6 +141,8 @@ def test_demo_a_preference_reaches_new_thread_prompt_and_answer(
         assert "毛刺征" in response.json()["output"]
         assert '"max_words": 200' in model._prompts[-1]
         assert '"毛刺征"' in model._prompts[-1]
+        assert "[DOCTOR OUTPUT PREFERENCES — MUST FOLLOW]" in model._prompts[-1]
+        assert "不超过 200 个字符" in model._prompts[-1]
 
         _login(entity_client, "b")
         other_thread = _thread(entity_client, "C003")
@@ -171,7 +185,7 @@ def test_demo_b_historical_store_and_current_case_are_separate(
         assert get_default_store().get(patient_memory_ns("P001"), "observation:F001")
 
 
-def test_store_failure_allows_current_case_but_blocks_comparison(
+def test_store_read_failure_does_not_abort_agent(
     entity_client, tmp_path, monkeypatch
 ):
     def fail_store(_self):
@@ -195,16 +209,18 @@ def test_store_failure_allows_current_case_but_blocks_comparison(
             "/api/agent/chat",
             json={"session_id": thread_id, "user_message": "和上次相比变大了吗？"},
         )
-        assert response.status_code == 503
-        assert "无法可靠比较" in response.json()["detail"]
-        assert len(model._prompts) == prior_calls
+        assert response.status_code == 200
+        assert "无法可靠比较" in response.json()["output"]
+        assert "8mm" in response.json()["output"]
+        assert len(model._prompts) == prior_calls + 1
         with entity_client.websocket_connect(f"/api/ws/agent/{thread_id}") as ws:
             assert ws.receive_json()["type"] == "status"
             ws.send_json({"message": "和上次相比变大了吗？"})
             assert ws.receive_json()["type"] == "status"
-            event = ws.receive_json()
-            assert event["type"] == "error"
-            assert "无法可靠比较" in event["content"]
+            answer = _receive_final(ws)
+            assert "无法可靠比较" in answer
+            assert "8mm" in answer
+        assert len(model._prompts) == prior_calls + 2
 
 
 def test_superseded_business_finding_is_removed_from_store(entity_db, tmp_path):
@@ -243,7 +259,7 @@ def test_explicit_preference_endpoint_uses_authenticated_doctor(entity_client):
     assert entity_client.get("/api/memory/preferences/report-style").json() == {}
 
 
-def test_preference_tool_failure_cannot_return_saved_success(
+def test_store_write_failure_does_not_claim_saved(
     entity_client, tmp_path, monkeypatch
 ):
     def fail_save(_self, _doctor_id, _key, _value):
@@ -259,13 +275,65 @@ def test_preference_tool_failure_cannot_return_saved_success(
             "/api/agent/chat",
             json={"session_id": thread_id, "user_message": "以后报告结论放前面"},
         )
-        assert response.status_code == 503
-        assert "保存失败" in response.json()["detail"]
+        assert response.status_code == 200
+        answer = response.json()["output"]
+        assert "保存失败" in answer
+        assert "后续会话可能无法自动恢复" in answer
+        assert "本次偏好仅临时使用" in answer
+        assert "偏好已保存" not in answer
+        assert SessionManager(saver).get_messages(thread_id)[-1].content == answer
+        assert get_default_store().get(
+            ("doctor", "D001", "preferences"), "report_style"
+        ) is None
         ws_thread = _thread(entity_client, "C001")
         with entity_client.websocket_connect(f"/api/ws/agent/{ws_thread}") as ws:
             assert ws.receive_json()["type"] == "status"
             ws.send_json({"message": "以后报告结论放前面"})
             assert ws.receive_json()["type"] == "status"
-            event = ws.receive_json()
-            assert event["type"] == "error"
-            assert "保存失败" in event["content"]
+            answer = _receive_final(ws)
+            assert "保存失败" in answer
+            assert "后续会话可能无法自动恢复" in answer
+            assert "偏好已保存" not in answer
+        assert SessionManager(saver).get_messages(ws_thread)[-1].content == answer
+
+
+def test_longitudinal_question_does_not_invent_history_when_store_down(
+    entity_client, tmp_path, monkeypatch
+):
+    """A scripted model verifies the degradation contract, not live reasoning."""
+    model = PromptAwareModel()
+    with SqliteSaver.from_conn_string(str(tmp_path / "sessions.sqlite")) as saver:
+        _use_model_and_saver(monkeypatch, saver, model, tmp_path)
+        _login(entity_client)
+        thread_id = _thread(entity_client, "C002")
+        store = get_default_store()
+        prior = entity_client.post(
+            "/api/agent/chat",
+            json={"session_id": thread_id, "user_message": "和上次相比变化多少"},
+        )
+        assert prior.status_code == 200
+        assert "6mm" in prior.json()["output"]
+
+        def fail_search(*args, **kwargs):
+            raise OSError("synthetic store read failure")
+
+        monkeypatch.setattr(store, "search", fail_search)
+        response = entity_client.post(
+            "/api/agent/chat",
+            json={"session_id": thread_id, "user_message": "和上次相比有没有变化"},
+        )
+        assert response.status_code == 200
+        assert len(model._prompts) == 2
+        prompt = model._prompts[-1]
+        assert "[MEMORY STATUS]" in prompt
+        assert "store_unavailable" in prompt
+        assert "不得推断或编造既往测量值" in prompt
+        assert "不得声称无变化" in prompt
+        assert '"finding_id": "F002"' in prompt
+        assert '"finding_id": "F001"' not in prompt
+        answer = response.json()["output"]
+        assert "历史记忆不可用" in answer
+        assert "无法可靠比较" in answer
+        assert "8mm" in answer
+        assert "6mm" not in answer
+        assert "无变化" not in answer

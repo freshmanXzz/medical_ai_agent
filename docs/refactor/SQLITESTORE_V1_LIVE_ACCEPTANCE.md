@@ -1,14 +1,13 @@
 # SqliteStore V1 live acceptance
 
-日期：2026-09-29。模型：`deepseek-v4.1-flash`，服务返回版本 `deepseek-v4-1-flash-260910`。
+日期：2026-09-29（首轮）；2026-09-30（定验）。模型：`deepseek-v4.1-flash`，服务返回版本 `deepseek-v4-1-flash-260910`。
 
 ```text
-Doctor Preference: FAIL
-Longitudinal Memory: PASS
-Store Failure Degradation: FAIL
-
-SqliteStore V1 = NOT ACCEPTED
+2026-09-29 首轮：  A FAIL / B PASS / C FAIL  → NOT ACCEPTED
+2026-09-30 定验：  A PASS / B PASS / C PASS  → ACCEPTED
 ```
+
+> 定验依据（2026-09-30）：字数口径由 Martin 裁定为**全部字符计数**（含数字、单位与标点），实现已按此收紧；A/C 修复经 live 证实。详见文末 [2026-09-30 重验与定验记录](#2026-09-30-重验与定验记录)。
 
 ## 验收方式与服务状态
 
@@ -104,3 +103,67 @@ Thread A 输入：`以后报告请结论前置、200字以内、重点毛刺征�
 - C 的不可用历史注入真实模型与最终降级回答。
 - 本轮没有生产代码改动，没有重跑全量回归；此前 240 passed / 1 skipped 是离线基线，不能覆盖这次 live 失败。
 - 修复仍应限定在 V1，重新验证 A/C 后再决定是否 ACCEPTED；本轮不扩大到 V2。
+
+## 2026-09-30 重验记录
+
+模型：`deepseek-v4.1-flash`（同 2026-09-29）。验收脚本：`validation_scripts/store_v1_live_acceptance.py`（2026-09-30 已收编入仓库，仓库外原件保留为历史）（未改动场景与判定标准，仅将 8000 端口常驻服务健康检查改为非致命观测项——本轮 8000 无服务运行）。产物：`validation/store-v1-live-20260930-100033/`（evidence.json + audit + 隔离三库）。
+
+### 已修改（被验代码）
+
+- `martin/agent/agent.py`：偏好校验失败时如实替换最终回复并抛出，不再让乐观确认覆盖失败 I/O；报告场景把 persistence_failed 与只读 focus_context 传入 enforce_preferences。
+- `martin/memory/output_preferences.py`：enforce_preferences 增加数值/日期/不可用提示锚点保护（重写不得改变或删除）、persistence_failed 纠正要求、focus 保留要求；校验不过抛 PreferenceValidationError。
+- `martin/llm/chain.py`：测量值（直径/尺寸/坐标/置信度）为 None 或缺失时输出"未提供"，修复 NoneType.__format__ 崩溃。
+- Store 降级（C 项修复，已在 de7ff8f 提交）：snapshot_for_thread 失败时返回 available=False 快照，降级说明随 to_prompt 进入真实模型上下文，不再由路由守卫在模型调用前拦截。
+- 新增 tests/memory/test_store_v11_preferences.py、tests/test_report_missing_measurements.py。
+
+### 已运行 / 已测试 / 已通过
+
+- 全量离线回归：**280 passed / 1 skipped / 0 failed**（含新增修复测试）。日志：`validation/v1-fix-full-20260930.log`。
+- live 重验三场景（真实 REST + 真实 LLM + 隔离合成库）：
+
+| 场景 | 判定 | 明细 |
+| --- | --- | --- |
+| B. Longitudinal Memory | **PASS** | 结构检查 7/7 过；语义复核：6mm→8mm、+2mm、日期正确、无历史/当前混用、不编造分级依据 |
+| C. Store Failure Degradation | **PASS** | 故障注入被观察、降级快照生成、"历史记忆不可用"进入真实模型输入、模型被真实调用（0 次模型调用的问题已修复）、最终回答明确说明记忆不可用并拒绝编造比较、不谎报"无变化" |
+| A. Doctor Preference | **FAIL（7/8）** | 偏好保存/跨 Thread 检索/Prompt 注入/结论前置/毛刺征/报告工具空值兼容全部通过（487 字超长与 NoneType 崩溃两个旧失败已消除）；唯一失败 at_most_200_chars：回答 205 字符 > 200 |
+
+### A 项剩余失败的根因：字数口径分歧（不是行为失控）
+
+- 验收脚本（2026-09-29 既定标准）：`len(answer) <= 200`，计全部字符 → 205，超 5。
+- 实现（`output_preferences.chinese_length`）：只计汉字 → **126 字**，判定达标，未触发重写。
+- 报告正文含大量数字/单位/标点（"8.0mm""2026-09-01""Lung-RADS"等），两种口径相差 79。
+- 这是"200字以内"的需求定义问题：汉字口径是实现的主动设计（有专门测试），全字符口径是验收文档的既定标准。二者未对齐，不能靠改任何一方静默通过。
+
+### 结论（第一轮重验，已被文末定验取代）
+
+- 2026-09-29 记录的两个失败根因（A 模型不守约束+报告链崩溃、C 守卫拦截模型）**均已修复并在 live 证实**。
+- **SqliteStore V1 仍 = NOT ACCEPTED**，仅剩 A 的字数口径一项，需要人工决定标准：
+  1. 全字符口径（推荐，符合"字"的自然语义且防模型用英文/数字绕过限制）：改 `chinese_length` 计数范围，重跑 live A；
+  2. 汉字口径：需先修订验收标准文档，再重跑。
+- 除字数口径外无其他阻塞项；决定口径后 A 重验一次即可给出 ACCEPTED 与否的最终结论。
+
+## 2026-09-30 重验与定验记录
+
+### 第一轮重验（口径裁定前）
+
+- 全量离线 280 passed / 1 skipped / 0 failed；live 重验 B PASS（语义复核过）、C PASS（模型真实调用、降级上下文进 Prompt、拒绝编造）、A 7/8——唯一失败 at_most_200_chars（回答 205 全字符 vs 上限 200；实现按汉字计 126 判达标）。产物：`validation/store-v1-live-20260930-100033/`。
+
+### 口径裁定与实现收紧
+
+- **Martin 裁定（2026-09-30）："N 字以内" = 全部字符计数**，含数字、单位与标点。理由：符合自然语义，且防止模型用英文/数字绕过长度限制。
+- 实现收紧：`output_preferences.chinese_length` → `answer_length`（len 全字符）；Prompt 文案"不超过 N 个汉字" → "不超过 N 个字符（含数字、单位与标点）"；测试断言同步改写（含 live A 实际形态 205 字符回归用例）。
+
+### 定验（口径收紧后）
+
+- 离线：**280 passed / 1 skipped / 0 failed**（`validation/v1-criterion-full-20260930.log`）。
+- live 三场景（同脚本、同判定标准，产物 `validation/store-v1-live-20260930-101832/`）：
+
+| 场景 | 结构检查 | 语义复核 | 判定 |
+| --- | --- | --- | --- |
+| A. Doctor Preference | 8/8 | 结论前置、**119 字符 ≤ 200**、8mm/6mm/2mm 引用一致、毛刺征/密度/置信度/知识库缺失如实声明、报告工具无崩溃 | **PASS** |
+| B. Longitudinal Memory | 7/7 | 6.0mm（2026-06-01）→ 8.0mm（2026-09-01）+2.0mm、约 3 个月、无历史/当前混用、不编造分级 | **PASS** |
+| C. Store Failure Degradation | 5/5 | 明确说明 store_unavailable、拒绝"稳定/增大/缩小"判断（含"声称无变化同样不成立"）、仅陈述已确认事实、给出补数据路径 | **PASS** |
+
+### 阶段决定
+
+**SqliteStore V1 = ACCEPTED**（2026-09-30）。2026-09-29 首轮记录的全部失败根因均已修复并经真实模型证实。字数口径已固化在实现（`answer_length`）与测试中，后续"N 字以内"类偏好一律按全字符口径执行。下一步按执行计划进入 V2。

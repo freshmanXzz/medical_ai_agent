@@ -41,6 +41,7 @@ from martin.memory.actor import reset_actor_id, set_actor_id
 from martin.memory.output_preferences import (
     OutputPreferences,
     PREFERENCE_WRITE_FAILURE_MESSAGE,
+    PreferenceValidationError,
     enforce_preferences,
 )
 from martin.llm.chat_model import get_chat_model
@@ -325,40 +326,42 @@ class AgentExecutor:
         write_failed = False
         for action, output in steps:
             if action.tool == "save_report_preference":
-                preferences = OutputPreferences.from_dict(action.tool_input)
+                preferences = OutputPreferences.from_dict(
+                    action.tool_input
+                ).for_task(user_input)
                 if str(output).startswith("错误:"):
                     write_failed = True
-        if write_failed:
-            # Never let a model's optimistic acknowledgement override failed I/O.
-            parsed_result["output"] = PREFERENCE_WRITE_FAILURE_MESSAGE
-            if preferences.focus_spiculation:
-                parsed_result["output"] += "毛刺征只按已有资料描述。"
-            parsed_result["memory_write_failed"] = True
-
         report_requested = any(action.tool == "generate_report" for action, _ in steps)
         report_requested = report_requested or bool(re.search(
             r"(?:生成|出|写|整理|提供).{0,6}报告", user_input
         ))
+        if write_failed:
+            parsed_result["memory_write_failed"] = True
+        if write_failed and not report_requested:
+            # Never let a model's optimistic acknowledgement override failed I/O.
+            parsed_result["output"] = PREFERENCE_WRITE_FAILURE_MESSAGE
+            if preferences.focus_spiculation:
+                parsed_result["output"] += "毛刺征只按已有资料描述。"
+
         if report_requested:
-            parsed_result["output"], parsed_result["preference_validation"] = (
-                enforce_preferences(
-                    parsed_result["output"], preferences,
-                    lambda messages: get_chat_model().invoke(messages),
-                )
-            )
-        if parsed_result["output"] != initial_output:
-            # Replace the final AI message, so recovery shows the returned answer.
-            last_answer = next((
-                msg for msg in reversed(all_messages)
-                if isinstance(msg, AIMessage) and not msg.tool_calls
-            ), None)
             try:
-                self._agent.update_state(config, {"messages": [AIMessage(
-                    content=parsed_result["output"],
-                    id=last_answer.id if last_answer else None,
-                )]})
-            except Exception as exc:
-                raise CasePersistenceError("病例保存失败，请重试。") from exc
+                parsed_result["output"], parsed_result["preference_validation"] = (
+                    enforce_preferences(
+                        parsed_result["output"], preferences,
+                        lambda messages: get_chat_model().invoke(messages),
+                        persistence_failed=write_failed,
+                        focus_context=self._focus_context(),
+                    )
+                )
+            except PreferenceValidationError:
+                # A failed repair must not leave an unapproved final in history.
+                self._replace_final_answer(
+                    all_messages, "报告格式校验未通过，暂未提供正式报告，请重试。"
+                )
+                self.save_case_context()
+                raise
+        if parsed_result["output"] != initial_output:
+            self._replace_final_answer(all_messages, parsed_result["output"])
 
         # 根据工具执行结果同步病例上下文
         self._sync_case_context_from_steps(
@@ -368,6 +371,38 @@ class AgentExecutor:
         self.save_case_context()
 
         return parsed_result
+
+    def _replace_final_answer(self, messages: list, answer: str) -> None:
+        """Persist the exact public answer using the original message identity."""
+        start = next((
+            i + 1 for i in range(len(messages) - 1, -1, -1)
+            if isinstance(messages[i], HumanMessage)
+        ), 0)
+        last_answer = next((
+            msg for msg in reversed(messages[start:])
+            if isinstance(msg, AIMessage) and not msg.tool_calls
+        ), None)
+        try:
+            self._agent.update_state(
+                {"configurable": {"thread_id": self.thread_id}},
+                {"messages": [AIMessage(
+                    content=answer, id=last_answer.id if last_answer else None,
+                )]},
+            )
+        except Exception as exc:
+            raise CasePersistenceError("病例保存失败，请重试。") from exc
+
+    def _focus_context(self) -> str:
+        """Only literal current-case descriptions, never historical observations."""
+        lines = [
+            note.strip() for note in self.case_context.clinical_notes
+            if isinstance(note, str) and "毛刺" in note
+        ]
+        for nodule in self.case_context.nodules[:5]:
+            for key, value in nodule.items():
+                if "毛刺" in str(value) or key in ("spiculation", "毛刺", "毛刺征"):
+                    lines.append(f"{key}：{value}")
+        return "\n".join(lines)[:500]
 
     def save_case_context(self) -> None:
         """将当前病例上下文写入该会话的最新 LangGraph checkpoint。

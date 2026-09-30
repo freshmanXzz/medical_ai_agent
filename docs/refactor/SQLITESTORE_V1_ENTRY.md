@@ -1,6 +1,7 @@
 # SqliteStore V1 阶段入口
 
-日期：2026-09-29。状态：核心离线回归已通过；真实模型验收已运行，A FAIL / B PASS / C FAIL，**SqliteStore V1 = NOT ACCEPTED**。详情见 [真实模型验收记录](SQLITESTORE_V1_LIVE_ACCEPTANCE.md)。以下早期记录保留为阶段历史。
+日期：2026-09-29。状态：核心离线回归已通过；真实模型验收已运行，A FAIL / B PASS / C FAIL，**SqliteStore V1 = NOT ACCEPTED**。详情见 [真实模型验收记录](SQLITESTORE_V1_LIVE_ACCEPTANCE.md)。
+**2026-09-30 定验：A PASS / B PASS / C PASS，SqliteStore V1 = ACCEPTED**。字数口径由 Martin 裁定为全字符计数并已在实现收紧。详见 [真实模型验收记录](SQLITESTORE_V1_LIVE_ACCEPTANCE.md) 文末定验记录。以下早期记录保留为阶段历史。
 
 ## 前置核对
 
