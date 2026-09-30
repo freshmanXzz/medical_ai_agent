@@ -118,6 +118,12 @@ def agent_chat(request: ChatRequest, doctor: DoctorIdentity = Depends(get_curren
         from martin.agent.case_context import CaseContext
 
         restored_context = CaseContext.from_dict(request.case_context)
+        # The browser sends a display projection, not authoritative detection
+        # facts. Keep the checkpoint/detector input used by report generation.
+        restored_context.nodules = list(getattr(agent.case_context, "nodules", []))
+        restored_context.detection_completed = getattr(
+            agent.case_context, "detection_completed", False
+        )
         # 浏览器上下文经过脱敏，不能因此覆盖 checkpoint 中供阅片和分析使用的
         # MinIO 对象引用；没有已保存来源时也不能采纳客户端伪造的影像路径。
         existing_image_info = getattr(agent.case_context, "image_info", {})

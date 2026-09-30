@@ -37,6 +37,7 @@ from martin.agent.prompt import SYSTEM_PROMPT
 from martin.agent.case_context import CaseContext
 from martin.agent.errors import CasePersistenceError
 from martin.agent.tools import get_case_context, reset_case_context, set_case_context
+from martin.agent.report_scope import reset_report_scope, set_report_scope
 from martin.memory.actor import reset_actor_id, set_actor_id
 from martin.memory.output_preferences import (
     OutputPreferences,
@@ -294,6 +295,7 @@ class AgentExecutor:
         token = set_case_context(self.case_context)
         memory_token = _memory_prompt_var.set(getattr(self, "memory_prompt", ""))
         actor_token = set_actor_id(getattr(self, "doctor_id", None))
+        report_token = set_report_scope(getattr(self, "doctor_id", None), self.thread_id)
         try:
             result = self._agent.invoke(
                 {
@@ -309,6 +311,7 @@ class AgentExecutor:
                 "intermediate_steps": [],
             }
         finally:
+            reset_report_scope(report_token)
             reset_actor_id(actor_token)
             _memory_prompt_var.reset(memory_token)
             reset_case_context(token)

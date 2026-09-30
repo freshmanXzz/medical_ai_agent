@@ -294,3 +294,31 @@ git status --short --branch
 ## 协议修订（2026-09-30，Kai）
 
 - 依 Martin 指示，`AGENT_HANDOFF_PROTOCOL.md` 新增第二节第 7 条「协作与决策分工记录」：每次交班必须在交班状态块写明协作模式——执行 agent 只产出建议与阶段报告，不做最终决策；决策由 Martin 转交 gptchat 模式拍板后返回执行。交班状态块模板同步增加「协作模式」行（必填），接手方开场 checklist 增加对应确认项。
+
+## 2026-09-30 — V1.1-1 报告 Finding 字段回填
+
+### 已修改
+- 授权当前病例 Finding 只读报告输入服务；Agent/API 服务端 scope；报告 REST 登录与 Thread 授权；三类 Prompt/模板回填部位、观察日期、直径；前端无 CT 报告入口。
+- 区分无业务 Finding 的旧检测恢复与已失效业务事实，阻止旧值复活；REST chat 保留服务端检测快照，忽略浏览器伪造结节。无新业务/Store 写入口，无纵向记忆逻辑改动。
+- 新增 49 项回归测试及入库 live 验收脚本；详细范围见 `docs/refactor/FINDING_REPORT_V11_1_ACCEPTANCE.md`。
+
+### 已运行
+- 顺序阅读最新交班、AGENT/LOCAL_NOTES、ROADMAP、记忆模块指南后核验 clean HEAD 0362225；未拉取。
+- 修改前完整基线、专项测试、完整回归、前端构建；隔离合成库自启 API 的真实 LLM 报告验收。所有 pytest 使用项目内 basetemp，依赖与模型配置未升级。
+
+### 已测试 / 已通过
+- 基线：280 passed / 1 skipped / 0 failed；最终回归：**329 passed / 1 skipped / 0 failed**。
+- 新输入/授权/API/SQLite 重启测试 37 passed；格式及旧报告/LCEL 专项 51 passed / 1 skipped；前端构建 PASS。
+- live 字段链路：REST brief / detailed / research、Agent report **各 8/8 PASS**。业务读取 → 实际报告 Prompt → 最终回答均使用当前 RUL / 2026-09-01 / 8mm，未混入历史 6mm。
+
+### 尚未验证
+- 科研版一次 live 输出末尾不完整；其余结构及 JSON 完整性未通过、原因未定位，未擅自改模型参数。
+- 未重做完整浏览器点击、真实 CT/MONAI/MinIO、知识库索引或 V1 A/B/C live 定验。其余 V1.1 待办、V2 未启动。
+
+## 交班状态（2026-09-30，Codex）
+
+- **阶段**：SqliteStore V1 既有 ACCEPTED 保留；V1.1-1 字段回填完成，证据和限制见 `docs/refactor/FINDING_REPORT_V11_1_ACCEPTANCE.md`。
+- **本日完成**：基线对齐、当前 Finding 授权回填、三类报告与前端接线、来源防护、49 项新增回归；最终 329/1/0，四条真实模型字段链路 8/8。
+- **待办（按 ROADMAP 优先级）**：服务启停脚本化、知识库实测、患者/病例发现、授权关系写入出口；科研版输出完整性观察已单独记录，待决定是否另行修复。
+- **协作模式**：建议+阶段报告 → Martin/gptchat 模式决策 → 回来执行；本轮仅执行已授权 V1.1-1，不自行启动后续阶段。
+- **本机瞬时状态**：见 git-ignored `LOCAL_NOTES.md`；运行数据库/日志/模型不提交。

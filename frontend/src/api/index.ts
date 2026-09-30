@@ -42,12 +42,14 @@ export const analyzeImage = (sessionId: string) =>
 
 // 报告生成
 export const generateReport = (
+  sessionId: string,
   detectionResult: Record<string, unknown>,
   reportType = 'detailed',
   language = 'zh',
   caseContext: Record<string, unknown> = {}
 ) =>
   api.post('/report/generate', {
+    session_id: sessionId,
     detection_result: detectionResult,
     report_type: reportType,
     language,

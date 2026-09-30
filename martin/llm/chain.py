@@ -34,7 +34,7 @@ logger = logging.getLogger(__name__)
 
 SYS_PROMPT_BRIEF = (
     "你是一位专业的放射科 AI 诊断专家。"
-    "请根据肺部CT检测结果和知识库资料，生成一份简洁的医学报告摘要。\n"
+    "请根据当前病例事实或已完成的影像检测结果和知识库资料，生成一份简洁的医学报告摘要。\n"
     "【约束】\n"
     "1. 诊断结论和建议必须基于提供的【知识库资料】，不得凭空编造\n"
     "2. 引用知识库时标注来源，如 [知识1]、[知识2]\n"
@@ -46,7 +46,7 @@ SYS_PROMPT_BRIEF = (
 
 SYS_PROMPT_DETAILED = (
     "你是一位专业的放射科 AI 诊断专家。"
-    "请根据肺部CT检测结果和知识库资料，生成一份详细的医学报告。\n"
+    "请根据当前病例事实或已完成的影像检测结果和知识库资料，生成一份详细的医学报告。\n"
     "【约束】\n"
     "1. 诊断结论和建议必须基于提供的【知识库资料】，不得凭空编造\n"
     "2. 引用知识库时标注来源，如 [知识1]、[知识2]\n"
@@ -61,7 +61,7 @@ SYS_PROMPT_DETAILED = (
 
 SYS_PROMPT_RESEARCH = (
     "你是一位专业的放射科 AI 诊断专家。"
-    "请根据肺部CT检测结果和知识库资料，生成一份科研级医学报告。\n"
+    "请根据当前病例事实或已完成的影像检测结果和知识库资料，生成一份科研级医学报告。\n"
     "【约束】\n"
     "1. 诊断结论和建议必须基于提供的【知识库资料】，不得凭空编造\n"
     "2. 引用知识库时标注来源，如 [知识1]、[知识2]\n"
@@ -90,8 +90,11 @@ diagnosis_prompt = ChatPromptTemplate.from_messages([
         """【患者信息】
 {patient_info}
 
-【检测结果】
-- 结节数量: {total_nodules} 个
+【检查信息】
+{examination_info}
+
+【{result_heading}】
+- {finding_summary}
 - 详见: {nodules_detail}
 
 【知识库资料】
@@ -153,6 +156,45 @@ def _build_patient_info(case_context: Optional[Any]) -> str:
     return "\n".join(parts)
 
 
+def _is_business_finding_input(detection_result: Dict) -> bool:
+    return detection_result.get("source") == "business_findings"
+
+
+def _has_insufficient_report_data(detection_result: Dict) -> bool:
+    return detection_result.get("source") == "insufficient_data" or (
+        _is_business_finding_input(detection_result)
+        and not detection_result.get("nodules")
+    )
+
+
+def _build_examination_info(detection_result: Dict) -> str:
+    """Keep Finding observation dates separate from report-generation dates."""
+    nodules = detection_result.get("nodules", [])
+    parts = []
+    if _is_business_finding_input(detection_result):
+        parts.append("资料来源：当前病例已确认的业务 Finding；不代表本轮完成影像检测。")
+    elif _has_insufficient_report_data(detection_result):
+        parts.append("当前病例资料不足：没有可用的已确认结节资料或已完成影像检测结果。")
+    for nodule in nodules:
+        if "observed_at" in nodule:
+            parts.append(
+                f"结节 {nodule['index']} 观察/检查日期："
+                f"{nodule.get('observed_at') or '未提供'}"
+            )
+    if not any("observed_at" in nodule for nodule in nodules):
+        parts.append("观察/检查日期：未提供")
+    return "\n".join(parts)
+
+
+def _build_finding_summary(detection_result: Dict) -> str:
+    if _has_insufficient_report_data(detection_result):
+        return "资料不足，不能判断是否存在结节；结节数量未知。"
+    count = detection_result.get("total_nodules", 0)
+    if _is_business_finding_input(detection_result):
+        return f"当前病例已确认结节数量: {count} 个"
+    return f"结节数量: {count} 个"
+
+
 def _build_nodules_detail(detection_result: Dict, report_type: str) -> str:
     """根据报告类型格式化结节详细信息。
 
@@ -171,6 +213,8 @@ def _build_nodules_detail(detection_result: Dict, report_type: str) -> str:
     nodules = detection_result.get("nodules", [])
     total_nodules = detection_result.get("total_nodules", 0)
 
+    if _has_insufficient_report_data(detection_result):
+        return "未提供可用于报告的结节资料。"
     if total_nodules == 0 or not nodules:
         return "无"
 
@@ -206,8 +250,14 @@ def _format_nodules_brief(nodules: list) -> str:
     """
     lines = []
     for nodule in nodules[:5]:
+        anatomy = (
+            f"解剖部位 {nodule.get('anatomy') or '未提供'}, "
+            if "anatomy" in nodule
+            else ""
+        )
         lines.append(
             f"- 结节 {nodule['index']}: "
+            f"{anatomy}"
             f"直径 {_format_measurement(nodule.get('diameter'))}mm, "
             f"置信度 {_format_measurement(nodule.get('score'), '.2%')}"
         )
@@ -235,8 +285,14 @@ def _format_nodules_detailed(nodules: list) -> str:
         confidence = (
             f"{score:.4f} ({score:.2%})" if _is_measurement(score) else "未提供"
         )
+        anatomy = (
+            f"\n  - 解剖部位: {nodule.get('anatomy') or '未提供'}"
+            if "anatomy" in nodule
+            else ""
+        )
         lines.append(
             f"\n结节 {nodule['index']}:"
+            f"{anatomy}"
             f"\n  - 位置: ({_format_measurement(center.get('x'))}, "
             f"{_format_measurement(center.get('y'))}, "
             f"{_format_measurement(center.get('z'))}) mm"
@@ -260,12 +316,17 @@ def _format_nodules_research(nodules: list) -> str:
     Returns:
         格式化的科研级结节数据文本，含表头和分隔线。
     """
-    lines = ["索引 | 直径(mm) | 置信度 | X | Y | Z"]
-    lines.append("-----|----------|--------|-----|-----|-----")
+    has_anatomy = any("anatomy" in nodule for nodule in nodules)
+    anatomy_header = "解剖部位 | " if has_anatomy else ""
+    anatomy_separator = "----------|" if has_anatomy else ""
+    lines = [f"索引 | {anatomy_header}直径(mm) | 置信度 | X | Y | Z"]
+    lines.append(f"-----|{anatomy_separator}----------|--------|-----|-----|-----")
     for nodule in nodules:
         center = nodule.get("center") or {}
+        anatomy = f"{nodule.get('anatomy') or '未提供'} | " if has_anatomy else ""
         lines.append(
-            f"{nodule['index']} | {_format_measurement(nodule.get('diameter'))} | "
+            f"{nodule['index']} | {anatomy}"
+            f"{_format_measurement(nodule.get('diameter'))} | "
             f"{_format_measurement(nodule.get('score'), '.4f')} | "
             f"{_format_measurement(center.get('x'))} | "
             f"{_format_measurement(center.get('y'))} | "
@@ -323,34 +384,88 @@ def _generate_template_report(detection_result: Dict, report_type: str) -> str:
 
     report_type = report_type.lower()
 
+    if _has_insufficient_report_data(detection_result):
+        return _build_template_insufficient_data(image_name, report_type)
+    business_findings = _is_business_finding_input(detection_result)
+    has_observation_dates = any("observed_at" in nodule for nodule in nodules)
+    examination_info = (
+        _build_examination_info(detection_result)
+        if business_findings or has_observation_dates
+        else ""
+    )
+
     if report_type == "brief":
-        return _build_template_brief(image_name, total_nodules, nodules)
+        return _build_template_brief(
+            image_name, total_nodules, nodules, examination_info, business_findings
+        )
     elif report_type == "research":
-        return _build_template_research(image_name, total_nodules, nodules)
+        return _build_template_research(
+            image_name, total_nodules, nodules, examination_info, business_findings
+        )
     else:
-        return _build_template_detailed(image_name, total_nodules, nodules)
+        return _build_template_detailed(
+            image_name, total_nodules, nodules, examination_info, business_findings
+        )
 
 
-def _build_template_brief(image_name: str, total_nodules: int, nodules: list) -> str:
+def _build_template_insufficient_data(image_name: str, report_type: str) -> str:
+    """Absence of current-case facts does not imply a negative image result."""
+    title = {"brief": "医学报告摘要", "research": "科研报告"}.get(
+        report_type, "医学报告"
+    )
+    return (
+        f"{title}\n========\n\n"
+        f"【病例信息】\n- 病例ID: {image_name}\n- 生成日期: 自动生成\n\n"
+        "【检查信息】\n- 观察/检查日期: 未提供\n"
+        "- 检查方式、扫描参数和图像质量: 未提供\n\n"
+        "【影像所见】\n当前病例资料不足：没有可用的已确认结节资料，"
+        "也没有已完成的可用影像检测结果。结节数量、部位和直径均无法判断。\n\n"
+        "【局限性与建议】\n当前资料不足以判断是否存在结节或进行风险分级，"
+        "请补充当前病例的检查资料后由医生复核。\n\n"
+        "本报告由AI自动生成，需经专业放射科医生审核确认。"
+    )
+
+
+def _build_template_brief(
+    image_name: str,
+    total_nodules: int,
+    nodules: list,
+    examination_info: str = "",
+    business_findings: bool = False,
+) -> str:
     """生成简洁版模板报告。"""
     if total_nodules == 0:
         nodule_text = "未检测到结节。"
     else:
         nodule_text = _format_nodules_brief(nodules)
+    examination_section = (
+        f"【检查信息】\n{examination_info}\n\n" if examination_info else ""
+    )
+    results_heading = "【影像所见】" if business_findings else "检测结果:"
+    count_label = "当前病例已确认结节总数" if business_findings else "检测到结节总数"
+    identity_label = "病例ID" if business_findings else "患者ID"
+    date_label = "生成日期" if business_findings else "日期"
 
     return (
         f"医学报告摘要\n"
         f"============\n\n"
-        f"患者ID: {image_name}\n"
-        f"日期: 自动生成\n\n"
-        f"检测结果:\n"
-        f"- 检测到结节总数: {total_nodules} 个\n\n"
+        f"{identity_label}: {image_name}\n"
+        f"{date_label}: 自动生成\n\n"
+        f"{examination_section}"
+        f"{results_heading}\n"
+        f"- {count_label}: {total_nodules} 个\n\n"
         f"{nodule_text}\n\n"
         f"建议: 请咨询放射科医生进行进一步评估。"
     )
 
 
-def _build_template_detailed(image_name: str, total_nodules: int, nodules: list) -> str:
+def _build_template_detailed(
+    image_name: str,
+    total_nodules: int,
+    nodules: list,
+    examination_info: str = "",
+    business_findings: bool = False,
+) -> str:
     """生成详细版模板报告。"""
     if total_nodules == 0:
         nodule_text = "未检测到肺部结节。"
@@ -410,18 +525,32 @@ def _build_template_detailed(image_name: str, total_nodules: int, nodules: list)
         else:
             recommendation = "建议6-12个月后复查CT随访。"
 
+    if business_findings:
+        examination_section = (
+            f"【检查信息】\n{examination_info}\n"
+            "- 检查方式: 未提供\n- 重建方式: 未提供\n\n"
+        )
+        finding_summary = f"【影像所见】\n当前病例已确认 {total_nodules} 个结节\n\n"
+    else:
+        observation_section = (
+            f"【检查信息】\n{examination_info}\n\n" if examination_info else ""
+        )
+        examination_section = (
+            f"{observation_section}"
+            "【检查方法】\n- 检查方式: 胸部CT\n- 重建方式: 标准重建\n\n"
+        )
+        finding_summary = f"【检测结果】\n共检测到 {total_nodules} 个肺部结节\n\n"
+    identity_label = "病例ID" if business_findings else "患者ID"
+
     return (
         f"医学报告\n"
         f"========\n\n"
         f"【患者信息】\n"
-        f"- 患者ID: {image_name}\n"
+        f"- {identity_label}: {image_name}\n"
         f"- 报告类型: 详细版\n"
         f"- 生成日期: 自动生成\n\n"
-        f"【检查方法】\n"
-        f"- 检查方式: 胸部CT\n"
-        f"- 重建方式: 标准重建\n\n"
-        f"【检测结果】\n"
-        f"共检测到 {total_nodules} 个肺部结节\n\n"
+        f"{examination_section}"
+        f"{finding_summary}"
         f"{nodule_text}\n\n"
         f"【诊断结论】\n"
         f"{impression}\n\n"
@@ -433,7 +562,11 @@ def _build_template_detailed(image_name: str, total_nodules: int, nodules: list)
 
 
 def _build_template_research(
-    image_name: str, total_nodules: int, nodules: list
+    image_name: str,
+    total_nodules: int,
+    nodules: list,
+    examination_info: str = "",
+    business_findings: bool = False,
 ) -> str:
     """生成科研版模板报告。"""
     statistics_note = ""
@@ -473,6 +606,26 @@ def _build_template_research(
         data_quality = "无"
         research_suggestion = "未检测到异常"
 
+    if business_findings:
+        examination_section = (
+            f"【检查信息】\n{examination_info}\n"
+            "- 检查方式: 未提供\n- 分析方法: 已确认业务 Finding 汇总\n\n"
+        )
+        statistics_heading = "【当前病例结节统计】"
+        findings_heading = "【影像所见】"
+        image_quality = "未提供"
+    else:
+        observation_section = (
+            f"【检查信息】\n{examination_info}\n\n" if examination_info else ""
+        )
+        examination_section = (
+            f"{observation_section}"
+            "【扫描参数】\n- 检查方式: 胸部CT\n- 分析方法: AI结节检测\n\n"
+        )
+        statistics_heading = "【检测统计】"
+        findings_heading = "【结节详细数据】"
+        image_quality = "良好"
+
     return (
         f"科研报告\n"
         f"========\n\n"
@@ -480,20 +633,18 @@ def _build_template_research(
         f"- 样本ID: {image_name}\n"
         f"- 报告类型: 科研版\n"
         f"- 生成日期: 自动生成\n\n"
-        f"【扫描参数】\n"
-        f"- 检查方式: 胸部CT\n"
-        f"- 分析方法: AI结节检测\n\n"
-        f"【检测统计】\n"
+        f"{examination_section}"
+        f"{statistics_heading}\n"
         f"- 结节总数: {total_nodules}\n"
         f"- 平均直径: {_format_measurement(avg_diameter)} mm\n"
         f"- 平均置信度: {_format_measurement(avg_score, '.4f')}\n"
         f"- 最大直径: {_format_measurement(max_diameter)} mm\n"
         f"- 最小直径: {_format_measurement(min_diameter)} mm\n"
         f"{statistics_note}\n"
-        f"【结节详细数据】\n"
+        f"{findings_heading}\n"
         f"{nodule_text}\n\n"
         f"【数据质量评估】\n"
-        f"- 图像质量: 良好\n"
+        f"- 图像质量: {image_quality}\n"
         f"- 检测置信度: {data_quality}\n"
         f"- 建议: {research_suggestion}\n\n"
         f"【JSON格式数据（便于处理）】\n"
@@ -504,7 +655,9 @@ def _build_template_research(
 # ─── 获取系统提示词 ──────────────────────────────────────────
 
 
-def _get_system_prompt(report_type: str) -> str:
+def _get_system_prompt(
+    report_type: str, detection_result: Optional[Dict] = None
+) -> str:
     """根据报告类型获取对应的系统提示词。
 
     Args:
@@ -513,7 +666,23 @@ def _get_system_prompt(report_type: str) -> str:
     Returns:
         对应的系统提示词字符串。若类型无效，默认返回详细版提示词。
     """
-    return _REPORT_TYPE_MAP.get(report_type.lower(), SYS_PROMPT_DETAILED)
+    prompt = _REPORT_TYPE_MAP.get(report_type.lower(), SYS_PROMPT_DETAILED)
+    result = detection_result or {}
+    if _is_business_finding_input(result) or _has_insufficient_report_data(result):
+        prompt += (
+            "\n【当前病例报告输入约束】\n"
+            "1. 业务 Finding 是当前病例已确认的结节记录，不表示本轮上传CT或完成自动检测。\n"
+            "2. 影像所见使用已提供的解剖部位和直径；观察/检查日期使用各结节的"
+            "observed_at，不得将其写为报告生成日期。\n"
+            "3. 未提供的检查方式、扫描参数、重建方式、图像质量和检测置信度"
+            "必须写为未提供，不得因存在 Finding 就声称图像质量良好。\n"
+        )
+    if _has_insufficient_report_data(result):
+        prompt += (
+            "4. 当前没有可用结节事实，也没有已完成的可用影像检测结果。"
+            "必须明确资料不足，不得将资料缺失表述为未检测到结节或未见异常。"
+        )
+    return prompt
 
 
 # ─── LCEL 链构建 ─────────────────────────────────────────────
@@ -546,6 +715,16 @@ def create_diagnosis_chain():
                 x.get("detection_result"), x.get("report_type", "detailed")
             ),
             patient_info=lambda x: _build_patient_info(x.get("case_context")),
+            examination_info=lambda x: _build_examination_info(
+                x.get("detection_result")
+            ),
+            finding_summary=lambda x: _build_finding_summary(x.get("detection_result")),
+            result_heading=lambda x: (
+                "影像所见"
+                if _is_business_finding_input(x.get("detection_result"))
+                or _has_insufficient_report_data(x.get("detection_result"))
+                else "检测结果"
+            ),
         )
         | diagnosis_prompt
         | model
@@ -593,7 +772,7 @@ def generate_report(
 
     # 构建链输入
     chain_input = {
-        "system_prompt": _get_system_prompt(report_type),
+        "system_prompt": _get_system_prompt(report_type, detection_result),
         "image_name": detection_result.get("image", "unknown"),
         "total_nodules": detection_result.get("total_nodules", 0),
         "report_type": report_type,

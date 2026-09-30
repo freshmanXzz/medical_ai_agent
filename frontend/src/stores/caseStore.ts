@@ -98,10 +98,10 @@ export const useCaseStore = defineStore('case', () => {
   const loading = ref(false)
   const error = ref('')
 
-  async function runReport(reportType = 'detailed', language = 'zh') {
+  async function runReport(sessionId: string, reportType = 'detailed', language = 'zh') {
     const restoredDetection = detectResult.value ?? detectResultFromCaseContext(caseContext.value)
-    if (!restoredDetection) {
-      error.value = '请先进行影像检测'
+    if (!sessionId) {
+      error.value = '请先选择病例会话'
       throw new Error(error.value)
     }
     // 统一使用当前病例恢复出的数据，防止某个路由恢复路径遗漏同步。
@@ -110,7 +110,8 @@ export const useCaseStore = defineStore('case', () => {
     error.value = ''
     try {
       const res = await generateReport(
-        restoredDetection as unknown as Record<string, unknown>,
+        sessionId,
+        (restoredDetection ?? {}) as unknown as Record<string, unknown>,
         reportType,
         language,
         caseContext.value

@@ -29,7 +29,7 @@
         class="report-content"
         v-html="renderMarkdown(caseStore.reportContent)"
       />
-      <el-empty v-else description="暂无报告，请先完成影像检测后生成报告草稿。" :image-size="88" />
+      <el-empty v-else description="暂无报告，可根据当前病例记录或影像检测结果生成草稿。" :image-size="88" />
     </el-card>
 
     <el-alert
@@ -46,9 +46,11 @@
 import { ref } from 'vue'
 import { ElMessage } from 'element-plus'
 import { useCaseStore } from '../stores/caseStore'
+import { useChatStore } from '../stores/chatStore'
 import MarkdownIt from 'markdown-it'
 
 const caseStore = useCaseStore()
+const chatStore = useChatStore()
 const reportType = ref('detailed')
 const md = new MarkdownIt({ html: false, linkify: true, breaks: true })
 
@@ -58,10 +60,13 @@ function renderMarkdown(text: string): string {
 
 async function handleGenerate() {
   try {
-    await caseStore.runReport(reportType.value, 'zh')
+    const sessionId = await chatStore.ensureThread()
+    await caseStore.runReport(sessionId, reportType.value, 'zh')
     ElMessage.success('报告生成成功')
-  } catch {
-    // 错误已在 store 中处理
+  } catch (err: unknown) {
+    if (!caseStore.error) {
+      ElMessage.error(err instanceof Error ? err.message : '报告生成失败')
+    }
   }
 }
 

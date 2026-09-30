@@ -9,11 +9,13 @@ import json
 import logging
 import os
 import threading
+from copy import deepcopy
 from typing import Dict
 
 from langchain_core.tools import tool
 
 from martin.agent.case_context import CaseContext
+from martin.agent.report_scope import current_report_scope
 from martin.memory.actor import current_actor_id
 from martin.vision.nodule_detector import NoduleDetector
 from martin.llm.chain import (
@@ -399,16 +401,19 @@ def update_case_context(user_input: str, reasoning: str = "") -> str:
 
 @tool
 def generate_report(
-    detection_result: str,
+    detection_result: str = "{}",
     report_type: str = "detailed",
     language: str = "zh",
     case_context: str = "{}",
     reasoning: str = "",
 ) -> str:
-    """根据检测结果和知识库资料生成结构化病例报告。
+    """根据当前病例事实、检测结果和知识库资料生成结构化病例报告。
+
+    登录会话由服务端读取当前病例 Finding；未上传 CT 也可生成基础报告。
+    不接受模型指定病例身份或覆盖业务事实。缺失字段保持未提供。
 
     Args:
-        detection_result: 检测结果的 JSON 格式字符串。
+        detection_result: 检测结果 JSON，默认为空；登录会话以服务端事实为准。
         report_type: 报告类型，可选 brief / detailed / research，默认为 detailed。
         language: 报告语言，zh（中文）或 en（英文），默认为 zh。
         case_context: 病例上下文的 JSON 格式字符串，默认为空字典字符串。
@@ -423,21 +428,48 @@ def generate_report(
         language,
     )
 
-    # 解析检测结果 JSON
-    try:
-        result_dict = json.loads(detection_result)
-    except (json.JSONDecodeError, TypeError):
-        logger.warning("无法解析检测结果 JSON")
-        return "报告生成失败：检测结果格式无效，请提供有效的 JSON 格式检测结果。"
+    scope = current_report_scope()
+    if scope is not None:
+        from martin.services.report_input_service import ReportInputService
 
-    # 解析病例上下文 JSON
-    case_context_dict: Dict = {}
-    if case_context:
+        # Never take identity or current measurements from model arguments.
+        # Current-case DB errors propagate before the LLM/fallback is called.
+        result_dict = ReportInputService().build(scope.doctor_id, scope.thread_id)
+        runtime_context = get_case_context()
+        case_context_dict = runtime_context.to_dict()
+        if result_dict is None:
+            image_info = runtime_context.image_info
+            completed = runtime_context.detection_completed or bool(
+                runtime_context.nodules
+            )
+            result_dict = {
+                "image": image_info.get("filename")
+                or image_info.get("image_name")
+                or "未提供",
+                "nodules": deepcopy(runtime_context.nodules),
+                "total_nodules": len(runtime_context.nodules),
+                "detection_completed": completed,
+            }
+            if not completed:
+                result_dict["source"] = "insufficient_data"
+    else:
+        # CLI and standalone callers retain the existing detector JSON contract.
         try:
-            case_context_dict = json.loads(case_context)
+            result_dict = json.loads(detection_result)
         except (json.JSONDecodeError, TypeError):
-            logger.warning("无法解析病例上下文 JSON，视为空上下文")
-            case_context_dict = {}
+            logger.warning("无法解析检测结果 JSON")
+            return "报告生成失败：检测结果格式无效，请提供有效的 JSON 格式检测结果。"
+        if not isinstance(result_dict, dict):
+            return "报告生成失败：检测结果格式无效，请提供有效的 JSON 格式检测结果。"
+        case_context_dict: Dict = {}
+        if case_context:
+            try:
+                parsed_context = json.loads(case_context)
+                case_context_dict = (
+                    parsed_context if isinstance(parsed_context, dict) else {}
+                )
+            except (json.JSONDecodeError, TypeError):
+                logger.warning("无法解析病例上下文 JSON，视为空上下文")
 
     # 归一化字段名：兼容 Agent 自动构建 JSON 时的不同命名习惯
     _normalize_detection_result(result_dict)

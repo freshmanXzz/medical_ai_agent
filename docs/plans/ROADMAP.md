@@ -12,7 +12,7 @@
 
 ## 近期（V1.1 小活，不依赖新模型资产）
 
-1. **报告生成接业务 Finding 回填**：报告模板目前只消费检测结果（位置/尺寸/置信度），未上传 CT 时整段"未提供"，而病例事实里的位置/日期在 findings 表里。从 findings 回填 anatomy / observed_at / diameter_mm 到"影像所见"与"检查信息"。
+1. **报告生成接业务 Finding 回填（字段链路已完成，2026-09-30）**：从授权当前病例 findings 回填 anatomy / observed_at / diameter_mm 到三类报告的"影像所见"与"检查信息"；无 CT 也可生成基础报告。离线 329 passed / 1 skipped / 0 failed，真实模型 REST 三类 + Agent 字段验收均 8/8。验收及尚未验证项见 [记录](../refactor/FINDING_REPORT_V11_1_ACCEPTANCE.md)；科研版曾出现输出末尾不完整，未将报告结构完整性标为通过。
 2. **服务启停脚本化**：封装凭据注入 + `python -m martin web` 的启动/停止脚本，消除每次手写包装的重复。
 3. **知识库实测**：本机 BGE 已装；上传指南文档 → 重建索引 → 对话检索引用进报告（当前 live 验收中"知识库未初始化"即为待测状态）。
 4. **患者/病例发现入口（2026-09-30 查证的功能缺口）**：`POST /api/threads` 只收 `case_id`，但系统没有任何"发现"入口——`AccessRepository` 没有按医生列患者的方法，也没有 `GET /api/patients`；前端 `frontend/src/stores/chatStore.ts:37` 写死 `DEFAULT_CASE_ID = 'C002'`，`Sessions.vue`（标题"病例记录"、渲染 `thread_id` 并标注"病例标识"）与 `Dashboard.vue`（"历史病例记录"= 会话数）把**会话**当病例展示。即 **API 入口单元是病例、UI 入口单元是会话，两者之间没有桥**。修法：

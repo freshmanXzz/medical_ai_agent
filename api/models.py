@@ -183,7 +183,10 @@ class KnowledgeSearchResponse(BaseModel):
 
 class ReportRequest(BaseModel):
     """报告生成请求"""
-    detection_result: Dict[str, Any] = Field(..., description="检测结果字典")
+    session_id: str = Field(..., min_length=1, description="已授权的业务会话标识")
+    detection_result: Dict[str, Any] = Field(
+        default_factory=dict, description="兼容旧客户端；事实由服务端读取"
+    )
     report_type: str = Field(default="detailed", description="报告类型: brief/detailed/research")
     language: str = Field(default="zh", description="报告语言: zh/en")
     case_context: Dict[str, Any] = Field(default_factory=dict, description="病例上下文")
