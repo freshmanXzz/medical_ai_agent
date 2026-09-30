@@ -15,6 +15,17 @@ Martin 是面向临床医生的医学影像辅助系统。Agent 位于 martin/ag
 - 测试优先使用 scripts/run_tests.ps1；解释器应可显式配置，或来自已选择并激活的项目环境。不得硬编码某台机器路径或在失败时静默回退。
 - MinIO 使用可信来源、当前平台支持的程序；从仓库根目录运行，相对数据目录为 data/minio。不要使用已知不受支持的仓库内可执行文件。
 
+### 本机实测环境事实（2026-09-30，Windows 开发机验证）
+
+以下为实测踩过的坑，换机器时按此对照：
+
+- **pytest 必须加 `--basetemp=<项目内目录>`**：本机 `%TEMP%\pytest-of-*` 权限损坏，否则批量出现 WinError 5 假 ERROR（不是代码问题）。
+- **日志重定向直接用 `python -m pytest > f 2>&1`**：PowerShell 5.1 的 `Tee-Object` 会把日志写成 UTF-16 乱码。
+- **git push / HuggingFace 直连可能被网络拒**：本机走代理 `127.0.0.1:7897`（`git -c http.proxy=... -c https.proxy=... push`）。环境变量里的另一个代理端口不通。
+- **LLM 凭据不会被自动加载**：凭据放在 `<工作区根>/conda/envs/<env>/conda-meta/state`（`env_vars` 字段：DEEPSEEK_API_KEY / DEEPSEEK_BASE_URL / DEEPSEEK_MODEL）只是本机约定，conda 不读它；启动服务或跑验收脚本时需手动读出注入环境变量。凭据值永不入仓库。
+- **前端构建用系统 Node 的 npm**：本机受管 Node 的 npm 有 MODULE_NOT_FOUND 问题；`cd frontend && npm run build` 后 dist 即生效（服务 StaticFiles 挂目录，无需重启）。
+- **live 验收脚本**在 `validation_scripts/`（已入库），独立监听 8001 并自建隔离三库；证据产物落在仓库外 `../validation/`（git-ignored 级别的本机证据）。8000 常驻服务不是其必要条件。
+
 ## 子系统技能
 
 涉及验证时先读 martin-quality-runtime，再读相应技能；跨模块读取多项。位置为 .agents/skills/<name>/SKILL.md。

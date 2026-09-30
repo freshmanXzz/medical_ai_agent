@@ -279,3 +279,14 @@ git status --short --branch
 ### 阶段决定
 - **SqliteStore V1 = ACCEPTED（2026-09-30）**。2026-09-29 首轮全部失败根因（A 模型不守约束+报告链崩溃、C 守卫拦截模型、字数口径）已全部关闭。
 - 下一步：按执行计划进入 V2。修复代码与文档当前在工作树未提交，待 Martin 确认后提交推送。
+
+## 交班状态（2026-09-30 12:00，Kai）
+
+- **阶段**：SqliteStore V1 = ACCEPTED（见 docs/refactor/SQLITESTORE_V1_LIVE_ACCEPTANCE.md 定验记录）；下一步按执行计划进 V2。
+- **Git**：工作树干净，远端与本地同步；本批推送：`7536571`（V1 定验 + 全字符口径 + validation_scripts 收编）、`5e212f3`（前端登录页 + 服务端会话生命周期）。
+- **8000 服务**：运行中（后台，日志 `../validation/martin-web-demo-20260930.log`）；前端已含登录页，登录账号为种子时用 MARTIN_SEED_DOCTOR_*_PASSWORD 环境变量设定的值（本机为 DoctorA!2026 / DoctorB!2026，仅本机种子）。
+- **本日 UI 联调**：补齐登录页与 401 拦截；修复前端客户端自造会话 ID 与 Entity V0 服务端建 Thread 的断点（ensureThread 默认绑 C002）。端到端实测：登录→建会话→真实 LLM 对话→记忆注入全通。
+- **待办（按优先级）**：
+  1. 报告模板接业务 Finding：报告生成工具目前仅吃检测结果（位置/尺寸/置信度），未上传 CT 时整段"未提供"；应从 findings 表回填 anatomy/日期/直径（V1.1 小活）。
+  2. MONAI 权重本机仍缺（models/vision/lung_nodule_ct_detection-0.6.8/…双层嵌套路径）；有权重机器按 README/AGENT.md 环境事实起 MinIO 后可测 UI 全链路。
+  3. 8000 常驻服务的启动/停止尚无脚本化封装（启动方式见 AGENT.md 环境事实）。
