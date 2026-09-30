@@ -39,6 +39,8 @@ Martin 是面向**呼吸科 / 胸外科 / 影像科医生**的 AI 医学影像�
 
 ## 🏗 三库架构（边界见 docs/refactor/ADR-001）
 
+![Martin 三库架构](docs/architecture.svg)
+
 | 库 | 文件 | 职责 |
 |---|---|---|
 | 业务库（事实源） | `data/app.sqlite` | 10 张表：users / patients / cases / threads / doctor_patient_access / attachments / findings / reports / auth_sessions / case_change_audit |
