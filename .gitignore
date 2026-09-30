@@ -79,3 +79,4 @@ models/
 dist/
 build/
 *.egg-info/
+LOCAL_NOTES.md
