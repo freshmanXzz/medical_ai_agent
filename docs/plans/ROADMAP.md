@@ -15,6 +15,12 @@
 1. **报告生成接业务 Finding 回填**：报告模板目前只消费检测结果（位置/尺寸/置信度），未上传 CT 时整段"未提供"，而病例事实里的位置/日期在 findings 表里。从 findings 回填 anatomy / observed_at / diameter_mm 到"影像所见"与"检查信息"。
 2. **服务启停脚本化**：封装凭据注入 + `python -m martin web` 的启动/停止脚本，消除每次手写包装的重复。
 3. **知识库实测**：本机 BGE 已装；上传指南文档 → 重建索引 → 对话检索引用进报告（当前 live 验收中"知识库未初始化"即为待测状态）。
+4. **患者/病例发现入口（2026-09-30 查证的功能缺口）**：`POST /api/threads` 只收 `case_id`，但系统没有任何"发现"入口——`AccessRepository` 没有按医生列患者的方法，也没有 `GET /api/patients`；前端 `frontend/src/stores/chatStore.ts:37` 写死 `DEFAULT_CASE_ID = 'C002'`，`Sessions.vue`（标题"病例记录"、渲染 `thread_id` 并标注"病例标识"）与 `Dashboard.vue`（"历史病例记录"= 会话数）把**会话**当病例展示。即 **API 入口单元是病例、UI 入口单元是会话，两者之间没有桥**。修法：
+   - 后端：`AccessRepository.list_by_doctor(doctor_id)` + `GET /api/patients`（`GET /api/patients/{patient_id}/cases` 已实现）；
+   - 前端：落地页改为"我的患者 → 病例列表"，选中病例才创建会话；现有会话列表降级为"某病例下的历史会话"；
+   - 文案：修正"病例标识 · {thread_id}"与"历史病例记录"（当前界面用"病例"指代 thread）。
+   - 约束：患者身份只能由 `thread → case → patient` 反查得到，**不得由模型从对话文本推断**（同 Entity V0 决策 3 对 doctor_id 的禁令）。若日后要做"按特征找患者"，检索范围必须先被业务授权收窄、只输出候选、由医生确认后才建会话。
+5. **授权关系写入出口**：`doctor_patient_access` 目前只能由 seed 脚本和测试写入——`AccessRepository.grant()` 无 service 方法、无 HTTP 端点，"谁在什么条件下把患者授权给医生"尚未设计（`revoke` 同理）。需要管理端点或 CLI（含 `case_change_audit` 审计），否则除 seed 之外没有任何患者能进入医生的工作台。
 
 ## 全链路实测（需 MONAI 权重与 CT 影像的机器）
 
