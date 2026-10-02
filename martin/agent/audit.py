@@ -62,6 +62,11 @@ class AuditLogger:
             final_output: Agent 最终回答摘要，用于审计溯源（前 500 字符）。
         """
         reasoning = args.pop("reasoning", "") if isinstance(args, dict) else ""
+        if tool_name == "save_long_term_memory":
+            args = {"memory_type": args.get("memory_type")} if isinstance(args, dict) else {}
+            reasoning = ""
+            user_input = ""
+            final_output = ""
         record = {
             "timestamp": datetime.now().isoformat(),
             "session_id": self.session_id,

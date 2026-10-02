@@ -594,7 +594,6 @@ scripts/import_knowledge.py
 | `docs/LEARNING_SUMMARY.md` | 概念心得，不作为当前实现规范 | 最后阅读 |
 | `docs/ROADMAP.md` | 未实现能力和技术债 | 规划开发时读 |
 | `docs/CLEANUP_AUDIT.md` | 测试重复、假通过和清理候选 | 重构前阅读 |
-| `PROJECT_ANALYSIS.md` | README 重构前的历史分析 | 仅作历史参考 |
 | `knowledge_base/README.md` | 医学知识文件说明 | 学习 RAG 时读 |
 
 文档描述和代码冲突时，以当前代码和自动测试为准。

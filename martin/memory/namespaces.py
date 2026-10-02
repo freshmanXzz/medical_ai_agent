@@ -21,3 +21,11 @@ def patient_memory_ns(patient_id: str) -> tuple[str, ...]:
 
 def case_memory_ns(case_id: str) -> tuple[str, ...]:
     return ("case", _id(case_id), "memory")
+
+
+def doctor_records_ns(doctor_id: str) -> tuple[str, ...]:
+    return ("doctor", _id(doctor_id), "records")
+
+
+def records_ns(doctor_id: str, patient_id: str) -> tuple[str, ...]:
+    return ("doctor", _id(doctor_id), "patient", _id(patient_id), "records")

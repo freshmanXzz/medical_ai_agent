@@ -107,7 +107,7 @@ def _rewrite_anchors(text: str) -> set[tuple[str, str]]:
 def _rewrite_preserves_anchors(original: str, repaired: str) -> bool:
     if _rewrite_anchors(original) != _rewrite_anchors(repaired):
         return False
-    for marker in ("历史不可用", "历史记忆不可用", "历史记忆暂不可用", "长期偏好保存失败"):
+    for marker in ("历史不可用", "历史记忆不可用", "历史记忆暂不可用", "长期偏好保存失败", "长期记忆保存失败"):
         if marker in original and marker not in repaired:
             return False
     return True
@@ -116,10 +116,13 @@ def _rewrite_preserves_anchors(original: str, repaired: str) -> bool:
 def enforce_preferences(
     answer: str, preferences: OutputPreferences, rewrite: Callable,
     *, persistence_failed: bool = False, focus_context: str = "",
+    memory_persistence_failed: bool = False,
 ) -> tuple[str, dict]:
     violations = validate_preferences(answer, preferences)
     if persistence_failed:
         violations.append("persistence_status_incorrect")
+    if memory_persistence_failed:
+        violations.append("memory_persistence_status_incorrect")
     evidence = {"initial_violations": violations, "rewrite_attempts": 0}
     if not violations:
         return answer, evidence
@@ -136,10 +139,13 @@ def enforce_preferences(
             "如果提供了只读 focus_context，应保留其中原样陈述的毛刺事实，不得反转有无。"
             "若 persistence_failed 为 true，原答复的保存成功声明不可信，必须纠正为"
             "‘长期偏好保存失败，后续会话可能无法自动恢复’，同时保留报告正文。"
+            "若 memory_persistence_failed 为 true，必须纠正讨论/任务等记忆的保存声明为"
+            "‘长期记忆保存失败，本次内容未确认写入’，不得声称已保存或已记住；保留报告事实。"
         )),
         HumanMessage(content=json.dumps(
             {"original_answer": answer, "format_violations": violations,
              "persistence_failed": persistence_failed,
+             "memory_persistence_failed": memory_persistence_failed,
              "focus_context": focus_context},
             ensure_ascii=False,
         )),
@@ -167,6 +173,11 @@ def enforce_preferences(
         or re.search(r"已(?:经)?(?:保存|记住)|保存成功|记住了", repaired)
     ):
         raise PreferenceValidationError("格式重写未正确说明长期保存失败，请重试。")
+    if memory_persistence_failed and (
+        "长期记忆保存失败" not in repaired
+        or re.search(r"已(?:经)?(?:保存|记住)|保存成功|记住了", repaired)
+    ):
+        raise PreferenceValidationError("格式重写未正确说明长期记忆保存失败，请重试。")
     return repaired, evidence
 
 

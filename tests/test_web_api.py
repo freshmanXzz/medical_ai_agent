@@ -201,7 +201,7 @@ def test_chat_endpoint_calls_agent_and_returns_context(monkeypatch, entity_db):
         case_context = None
 
         def invoke(self, inputs):
-            assert inputs == {"input": "你好"}
+            assert inputs == {"input": "你好", "human_input": "你好"}
             return {"output": "你好，我是 Martin。", "intermediate_steps": []}
 
     monkeypatch.setattr(agent_module, "create_agent", lambda **_: FakeAgent())
@@ -233,6 +233,7 @@ def test_chat_attachment_does_not_accept_or_echo_an_object_key(monkeypatch, enti
         def invoke(self, inputs):
             assert "patient-study.nii.gz" in inputs["input"]
             assert "ct/private-object.nii.gz" not in inputs["input"]
+            assert inputs["human_input"] == "."
             return {"output": "请从工作站上传。", "intermediate_steps": []}
 
     monkeypatch.setattr(agent_module, "create_agent", lambda **_: FakeAgent())

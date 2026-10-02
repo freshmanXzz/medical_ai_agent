@@ -11,6 +11,11 @@ import os
 from pathlib import Path
 from typing import Optional
 
+from dotenv import load_dotenv
+
+# 项目根目录 .env 若存在则加载（优先级低于已存在的系统环境变量）
+load_dotenv(Path(__file__).resolve().parent.parent / ".env")
+
 
 class LangChainConfig:
     """LangChain 配置类，统一管理所有组件参数。

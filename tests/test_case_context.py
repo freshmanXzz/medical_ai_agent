@@ -238,7 +238,11 @@ class TestAgentExecutorContext:
         args, kwargs = mock_agent.invoke.call_args
         # state 第一个位置参数包含 messages 与 case_context 两个字段
         state = args[0]
-        assert state["messages"][0] == ("human", "请评估风险")
+        from langchain_core.messages import HumanMessage
+
+        assert isinstance(state["messages"][0], HumanMessage)
+        assert state["messages"][0].content == "请评估风险"
+        assert state["messages"][0].id
         # case_context 作为独立字段注入（取代旧的消息拼接方式）
         injected = state["case_context"]
         assert injected["patient_info"]["age"] == 65

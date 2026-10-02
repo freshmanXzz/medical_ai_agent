@@ -16,6 +16,7 @@ from martin.services.access_service import AccessDeniedError, EntityNotFoundErro
 from martin.services.thread_service import ThreadService
 from martin.memory.output_preferences import PreferenceValidationError
 from martin.memory.service import MemoryService
+from martin.memory.router import MemoryRetrievalRouter
 from api.deps.auth import COOKIE_NAME, get_current_doctor, require_thread_access
 
 from api.models import (
@@ -84,9 +85,10 @@ def agent_chat(request: ChatRequest, doctor: DoctorIdentity = Depends(get_curren
     """Agent 对话接口，调用现有 AgentExecutor 进行推理。"""
     require_thread_access(doctor, request.session_id, write=True)
     try:
-        memory_snapshot = MemoryService().snapshot_for_thread(
-            doctor.id, request.session_id
+        memory_context = MemoryRetrievalRouter().retrieve(
+            doctor.id, request.session_id, request.user_message
         )
+        memory_snapshot = memory_context.snapshot
     except (AccessDeniedError, EntityNotFoundError) as exc:
         raise HTTPException(status_code=403, detail="无权访问该会话") from exc
     from martin.agent.agent import create_agent
@@ -103,7 +105,7 @@ def agent_chat(request: ChatRequest, doctor: DoctorIdentity = Depends(get_curren
             verbose=True,
             doctor_id=doctor.id,
         )
-        agent.memory_prompt = memory_snapshot.to_prompt(request.user_message)
+        agent.memory_prompt = memory_context.to_prompt(request.user_message)
         agent.report_preferences = memory_snapshot.doctor_preferences.get(
             "report_style", {}
         )
@@ -145,7 +147,7 @@ def agent_chat(request: ChatRequest, doctor: DoctorIdentity = Depends(get_curren
             user_message = f"{guidance}{user_message}"
 
     try:
-        result = agent.invoke({"input": user_message})
+        result = agent.invoke({"input": user_message, "human_input": request.user_message})
     except CasePersistenceError as e:
         raise HTTPException(status_code=503, detail="病例保存失败，请重试。") from e
     except PreferenceValidationError as e:
@@ -246,9 +248,10 @@ async def agent_websocket(websocket: WebSocket, session_id: str):
                 from martin.agent.agent import create_agent
                 from martin.agent.sessions import get_default_checkpointer
 
-                memory_snapshot = MemoryService().snapshot_for_thread(
-                    doctor.id, session_id
+                memory_context = MemoryRetrievalRouter().retrieve(
+                    doctor.id, session_id, user_input
                 )
+                memory_snapshot = memory_context.snapshot
 
                 checkpointer = get_default_checkpointer()
                 agent = create_agent(
@@ -257,7 +260,7 @@ async def agent_websocket(websocket: WebSocket, session_id: str):
                     verbose=True,
                     doctor_id=doctor.id,
                 )
-                agent.memory_prompt = memory_snapshot.to_prompt(user_input)
+                agent.memory_prompt = memory_context.to_prompt(user_input)
                 agent.report_preferences = memory_snapshot.doctor_preferences.get(
                     "report_style", {}
                 )
@@ -282,7 +285,9 @@ async def agent_websocket(websocket: WebSocket, session_id: str):
                 else:
                     final_input = user_input
 
-                result = await asyncio.to_thread(agent.invoke, {"input": final_input})
+                result = await asyncio.to_thread(
+                    agent.invoke, {"input": final_input, "human_input": user_input},
+                )
 
                 failure_detail = _agent_failure_detail(result)
                 if failure_detail:

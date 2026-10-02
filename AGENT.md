@@ -23,14 +23,14 @@ Martin 是面向临床医生的医学影像辅助系统。Agent 位于 martin/ag
 
 涉及验证时先读 martin-quality-runtime，再读相应技能；跨模块读取多项。位置为 .agents/skills/<name>/SKILL.md。
 
-| 修改范围 | 必读技能 |
-|---|---|
-| Agent、工具、Prompt、CaseContext、sessions、审计来源 | martin-agent-policy |
-| 知识文档、Chroma、加载、检索和溯源 | martin-rag-knowledge |
-| CT、MinIO、影像格式、MONAI | martin-vision-pipeline |
-| FastAPI、Vue、REST/WebSocket、病例恢复 | martin-web-workstation |
-| 报告生成、证据和模板 | martin-reporting |
-| 测试、构建、配置、日志隐私 | martin-quality-runtime |
+| 修改范围                                      | 必读技能                   |
+| ----------------------------------------- | ---------------------- |
+| Agent、工具、Prompt、CaseContext、sessions、审计来源 | martin-agent-policy    |
+| 知识文档、Chroma、加载、检索和溯源                      | martin-rag-knowledge   |
+| CT、MinIO、影像格式、MONAI                       | martin-vision-pipeline |
+| FastAPI、Vue、REST/WebSocket、病例恢复           | martin-web-workstation |
+| 报告生成、证据和模板                                | martin-reporting       |
+| 测试、构建、配置、日志隐私                             | martin-quality-runtime |
 
 这些是开发流程，不是运行时临床插件。技能中的历史机器配置不能覆盖正式环境原则。
 
@@ -56,4 +56,3 @@ Martin 是面向临床医生的医学影像辅助系统。Agent 位于 martin/ag
 - 不提交运行数据库、模型、日志、审计记录、凭据和测试产物；夹具使用合成数据与临时目录。
 - 修改前检查工作树，保留用户未提交工作；迁移先备份，不能以 reset --hard、clean 或强制覆盖消除未知修改。
 - 提交前审查差异和相关验证，遵守任务的验收及提交范围。不要宣称未验证改动已完成。
-

@@ -25,6 +25,11 @@ __pycache__/
 .DS_Store
 Thumbs.db
 
+# 排除环境变量与密钥（切勿提交）
+.env
+.env.*
+!.env.example
+
 # 排除conda环境
 conda_envs/
 miniconda/
@@ -45,6 +50,8 @@ data/app.sqlite
 data/app.sqlite-*
 data/memory.sqlite
 data/memory.sqlite-*
+data/memory_vectors.sqlite
+data/memory_vectors.sqlite-*
 
 # 本地 MinIO 运行时对象存储
 data/minio/
@@ -80,3 +87,4 @@ dist/
 build/
 *.egg-info/
 LOCAL_NOTES.md
+.workbuddy/

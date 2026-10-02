@@ -14,6 +14,7 @@ import os
 import re
 from contextvars import ContextVar
 from datetime import datetime
+from uuid import uuid4
 from typing import Any, Dict, List, Optional, Tuple
 
 from langchain.agents import AgentState, create_agent as create_langchain_agent
@@ -39,6 +40,8 @@ from martin.agent.errors import CasePersistenceError
 from martin.agent.tools import get_case_context, reset_case_context, set_case_context
 from martin.agent.report_scope import reset_report_scope, set_report_scope
 from martin.memory.actor import reset_actor_id, set_actor_id
+from martin.memory.interaction import MemoryInteraction, reset_interaction, set_interaction
+from martin.memory.tools import save_long_term_memory
 from martin.memory.output_preferences import (
     OutputPreferences,
     PREFERENCE_WRITE_FAILURE_MESSAGE,
@@ -145,6 +148,9 @@ class AgentLoggingHandler(BaseCallbackHandler):
             tool_args.pop("reasoning", "") if isinstance(tool_args, dict) else ""
         )
         self._current_tool_args = self._extract_args(tool_args)
+        if tool_name == "save_long_term_memory":
+            self._current_tool_args = {"memory_type": tool_args.get("memory_type")}
+            self._current_reasoning = ""
 
         # --- 思维日志文件（完整内容） ---
         self._thinking_logger.info(
@@ -282,7 +288,11 @@ class AgentExecutor:
             含 "output" 和 "intermediate_steps" 的字典。
         """
         user_input = inputs.get("input", "")
-        messages = [("human", user_input)]
+        human_input = inputs.get("human_input", user_input)
+        if not isinstance(user_input, str) or not isinstance(human_input, str):
+            return {"output": "错误: 对话输入必须为文本。", "intermediate_steps": []}
+        interaction_id = str(uuid4())
+        messages = [HumanMessage(content=user_input, id=interaction_id)]
 
         # langgraph 的 thread_id 配置
         config = {"configurable": {"thread_id": self.thread_id}}
@@ -296,6 +306,9 @@ class AgentExecutor:
         memory_token = _memory_prompt_var.set(getattr(self, "memory_prompt", ""))
         actor_token = set_actor_id(getattr(self, "doctor_id", None))
         report_token = set_report_scope(getattr(self, "doctor_id", None), self.thread_id)
+        interaction_token = set_interaction(MemoryInteraction(
+            interaction_id, human_input,
+        ))
         try:
             result = self._agent.invoke(
                 {
@@ -311,6 +324,7 @@ class AgentExecutor:
                 "intermediate_steps": [],
             }
         finally:
+            reset_interaction(interaction_token)
             reset_report_scope(report_token)
             reset_actor_id(actor_token)
             _memory_prompt_var.reset(memory_token)
@@ -326,6 +340,10 @@ class AgentExecutor:
             getattr(self, "report_preferences", {})
         ).for_task(user_input)
         steps = parsed_result.get("intermediate_steps", [])
+        durable_write_failed = any(
+            action.tool == "save_long_term_memory" and str(output).startswith("错误:")
+            for action, output in steps
+        )
         write_failed = False
         for action, output in steps:
             if action.tool == "save_report_preference":
@@ -338,6 +356,12 @@ class AgentExecutor:
         report_requested = report_requested or bool(re.search(
             r"(?:生成|出|写|整理|提供).{0,6}报告", user_input
         ))
+        if durable_write_failed:
+            parsed_result["memory_write_failed"] = True
+            failure = "长期记忆保存失败，本次内容未确认写入；后续会话可能无法恢复。"
+            parsed_result["output"] = (
+                parsed_result["output"] + "\n" + failure if report_requested else failure
+            )
         if write_failed:
             parsed_result["memory_write_failed"] = True
         if write_failed and not report_requested:
@@ -353,6 +377,7 @@ class AgentExecutor:
                         parsed_result["output"], preferences,
                         lambda messages: get_chat_model().invoke(messages),
                         persistence_failed=write_failed,
+                        memory_persistence_failed=durable_write_failed,
                         focus_context=self._focus_context(),
                     )
                 )
@@ -526,6 +551,7 @@ def create_agent(
         ]
         if doctor_id is not None:
             tools.append(save_report_preference)
+            tools.append(save_long_term_memory)
     return AgentExecutor(
         tools=tools,
         verbose=verbose,

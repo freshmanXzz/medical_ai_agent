@@ -7,7 +7,7 @@ from martin.memory.output_preferences import answer_length
 from websockets.sync.client import connect
 
 h.evidence['version'] = 'V1.1'
-h.evidence['scope'] = 'Live A: 3 independent report threads; live C: REST, WebSocket and current-case analysis. B unchanged.'
+h.evidence['scope'] = 'Live A: 3 independent report threads; live B: longitudinal 6mm -> 8mm; live C: REST, WebSocket and current-case analysis.'
 
 
 def check_answer(answer):
@@ -23,6 +23,7 @@ def check_degraded(answer):
         'Historical warning': bool(re.search(r'历史|既往|上次', answer)) and bool(re.search(r'不可用|无法|缺失|未能|不能', answer)),
         'No fabricated previous 6mm': not bool(re.search(r'6(?:\.0)?\s*(?:mm|毫米)', answer, re.I)),
         'No fabricated +2mm': not bool(re.search(r'[+＋]\s*2(?:\.0)?\s*(?:mm|毫米)', answer, re.I)),
+        'No fabricated increase 2mm': not bool(re.search(r'(?:增加|增大|增粗|增长)\s*(?:了|约)?\s*2(?:\.0)?\s*(?:mm|毫米)', answer, re.I)),
     }
 
 
@@ -31,7 +32,7 @@ def run(client):
     login.raise_for_status()
     h.phase = 'A_thread_A'
     first = h.new_thread(client, 'C002')
-    h.chat(client, first, '以后报告请结论前置、200字以内、重点毛刺征。', 'set_preference')
+    preference_response, _ = h.chat(client, first, '以后报告请结论前置、200字以内、重点毛刺征。', 'set_preference')
     item = h.get_default_store().get(('doctor','D001','preferences'), 'report_style')
     pref = item.value if item else {}
     trials = []
@@ -50,14 +51,16 @@ def run(client):
             'Max one rewrite': len(rewrites) <= 1,
             **check_answer(answer),
         }
-        trials.append({'thread':thread,'checks':checks,'han_characters':chinese_length(answer),'total_characters':len(answer),'rewrite_count':len(rewrites),
+        trials.append({'thread':thread,'checks':checks,'total_characters':answer_length(answer),'rewrite_count':len(rewrites),
                        'status':'PASS' if all(checks.values()) else 'FAIL'})
         h.flush()
         print(f'A report {index}: '+trials[-1]['status'], flush=True)
-    stored = pref.get('conclusion_first') is True and pref.get('max_words')==200 and '毛刺征' in pref.get('focus',[])
+    stored = preference_response.status_code == 200 and pref.get('conclusion_first') is True and pref.get('max_words')==200 and '毛刺征' in pref.get('focus',[])
     h.evidence['checks']['Doctor Preference']={'status':'PASS' if stored and all(t['status']=='PASS' for t in trials) else 'FAIL',
                                                'saved_by_real_agent':stored,'trials':trials}
     h.flush()
+
+    h.run_longitudinal(client)
 
     h.fault = True
     try:
@@ -66,6 +69,8 @@ def run(client):
         response,body=h.chat(client,thread,'和上次相比有没有变化','store_read_failure')
         answer=body.get('output','')
         checks={'No premature 503':response.status_code==200,
+                'Read fault observed':any(x['phase']==h.phase and x.get('error') for x in h.evidence['store_reads']),
+                'Degraded snapshot':any(x['phase']==h.phase and not x['snapshot']['available'] for x in h.evidence['snapshots']),
                 'LLM still called':any(c['phase']==h.phase for c in h.evidence['model_calls']),
                 'Memory status injected':any('[MEMORY STATUS]' in p and 'store_unavailable' in p for p in h.actual_prompts(h.phase)),
                 **check_degraded(answer)}
@@ -75,12 +80,12 @@ def run(client):
         current_thread=h.new_thread(client,'C002')
         rc,bc=h.chat(client,current_thread,'只总结当前病例已确认的结节事实。','current_case_under_store_failure')
         current_answer=bc.get('output','')
-        current_ok=rc.status_code==200 and bool(re.search(r'8(?:\.0)?\s*(?:mm|毫米)',current_answer,re.I))
+        current_ok=rc.status_code==200 and bool(re.search(r'8(?:\.0)?\s*(?:mm|毫米)',current_answer,re.I)) and not bool(re.search(r'6(?:\.0)?\s*(?:mm|毫米)',current_answer,re.I))
 
         h.phase='C_store_failure_WS'
         ws_thread=h.new_thread(client,'C002')
         cookie='; '.join(f'{k}={v}' for k,v in client.cookies.items())
-        with connect(f'ws://127.0.0.1:8001/api/ws/agent/{ws_thread}',additional_headers={'Cookie':cookie},open_timeout=20) as ws:
+        with connect(f'ws://127.0.0.1:{h.PORT}/api/ws/agent/{ws_thread}',additional_headers={'Cookie':cookie},open_timeout=20,proxy=None) as ws:
             ws.recv(timeout=20)
             ws.send(json.dumps({'message':'和上次相比有没有变化'},ensure_ascii=False))
             events=[]
@@ -93,6 +98,8 @@ def run(client):
         h.evidence['http'].append({'phase':h.phase,'label':'websocket','status':101,
                                   'body':{'output':final['content'] if final['type']=='final' else '', 'events':h.clean(events)}})
         ws_checks={'No premature error':final['type']=='final','LLM still called':any(c['phase']==h.phase for c in h.evidence['model_calls']),
+                   'Read fault observed':any(x['phase']==h.phase and x.get('error') for x in h.evidence['store_reads']),
+                   'Memory status injected':any('[MEMORY STATUS]' in p and 'store_unavailable' in p for p in h.actual_prompts(h.phase)),
                    **check_degraded(final['content'])}
         h.evidence['checks']['Store Failure Degradation']={
             'status':'REVIEW' if all(checks.values()) and current_ok and all(ws_checks.values()) else 'FAIL',
@@ -106,4 +113,4 @@ def run(client):
 
 h.run_scenarios=run
 if __name__=='__main__':
-    h.main()
+    raise SystemExit(h.main())

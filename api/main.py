@@ -15,10 +15,12 @@ async def lifespan(_: FastAPI):
     yield
     from martin.agent.sessions import close_default_checkpointer
     from martin.memory.store import close_default_store
+    from martin.memory.vector_index import close_default_vector_index
     from martin.vision.viewer import viewer_study_cache
 
     close_default_checkpointer()
     close_default_store()
+    close_default_vector_index()
     viewer_study_cache.close()
 
 
