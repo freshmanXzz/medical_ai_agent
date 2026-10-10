@@ -11,6 +11,7 @@
         <p>{{ patientLabel }} · {{ noduleList.length ? `已发现 ${noduleList.length} 个结节` : '等待上传影像进行分析' }}</p>
       </div>
       <div class="study-actions">
+        <el-button @click="memoryOpen = true">长期记忆</el-button>
         <el-button @click="$router.push('/sessions')">病例记录</el-button>
         <el-button type="primary" @click="$router.push('/report')">报告工作台</el-button>
       </div>
@@ -118,6 +119,7 @@
       </section>
     </el-drawer>
     <KnowledgeDocumentDrawer v-model:visible="docDrawerVisible" :filename="docDrawerFilename" />
+    <MemoryManagementDrawer v-model="memoryOpen" :thread-id="chatStore.sessionId" />
   </div>
 </template>
 
@@ -130,6 +132,7 @@ import CtAxialViewer from '../components/CtAxialViewer.vue'
 import ImageUploader from '../components/ImageUploader.vue'
 import KnowledgeDocumentDrawer from '../components/KnowledgeDocumentDrawer.vue'
 import KnowledgeSummaryPanel from '../components/KnowledgeSummaryPanel.vue'
+import MemoryManagementDrawer from '../components/MemoryManagementDrawer.vue'
 import PatientContextPanel from '../components/PatientContextPanel.vue'
 import { analyzeImage, uploadImage } from '../api'
 import { useCaseStore } from '../stores/caseStore'
@@ -156,6 +159,7 @@ const inputMessage = ref('')
 const selectedNoduleIndex = ref<number | null>(null)
 const selectionRequestId = ref(0)
 const copilotOpen = ref(false)
+const memoryOpen = ref(false)
 const compactViewport = ref(false)
 const chatContainer = ref<HTMLElement | null>(null)
 const docDrawerVisible = ref(false)

@@ -1,8 +1,9 @@
 """Agent 编排与审计日志集成测试"""
 import json
 import os
+from unittest.mock import MagicMock, PropertyMock, patch
+
 import pytest
-from unittest.mock import patch, MagicMock, PropertyMock
 
 
 class TestAgentInitialization:
@@ -95,19 +96,22 @@ class TestAuditLogger:
         assert logger.session_id == "test_session"
         assert "audit" in logger.audit_dir
 
-    def test_audit_log_tool_call_with_reasoning(self):
-        """测试包含 reasoning 的审计日志记录。"""
+    def test_audit_log_tool_call_redacts_free_text(self, tmp_path):
+        """审计只留执行状态；来源链存于受权数据库。"""
         from martin.agent.audit import AuditLogger
 
-        logger = AuditLogger(session_id="test_log")
+        logger = AuditLogger(session_id="test_log", audit_dir=str(tmp_path))
+        args = {
+            "image_path": "private-patient.nii.gz",
+            "reasoning": "private reasoning",
+        }
 
         logger.log_tool_call(
             tool_name="analyze_image",
-            args={
-                "image_path": "test.nii.gz",
-                "reasoning": "用户提供CT图像路径，需要分析",
-            },
+            args=args,
             output_summary="检测到2个结节",
+            user_input="private patient message",
+            final_output="private report",
         )
 
         # 验证日志文件存在且内容正确
@@ -116,9 +120,12 @@ class TestAuditLogger:
             record = json.loads(f.readline())
 
         assert record["tool_name"] == "analyze_image"
-        assert record["reasoning"] == "用户提供CT图像路径，需要分析"
-        assert "reasoning" not in record["full_args"]  # reasoning 已从 args 分离
-        assert record["full_args"]["image_path"] == "test.nii.gz"
+        assert record["reasoning"] == ""
+        assert record["full_args"] == {}
+        assert record["user_input"] == record["final_output"] == ""
+        assert record["output_summary"] == "tool_completed"
+        assert "private" not in json.dumps(record)
+        assert args["reasoning"] == "private reasoning"
 
     def test_audit_log_missing_reasoning_warning(self):
         """测试 reasoning 缺失时记录警告。"""
@@ -139,18 +146,18 @@ class TestAuditLogger:
 
         assert record["reasoning"] == ""  # 空字符串
 
-    def test_audit_log_error(self):
+    def test_audit_log_error(self, tmp_path):
         """测试错误日志记录。"""
         from martin.agent.audit import AuditLogger
 
-        logger = AuditLogger(session_id="test_err")
-        logger.log_agent_error("LLM API 调用失败")
+        logger = AuditLogger(session_id="test_err", audit_dir=str(tmp_path))
+        logger.log_agent_error("LLM API 调用失败 private request text")
 
         with open(logger.log_file, "r", encoding="utf-8") as f:
             record = json.loads(f.readline())
 
         assert record["type"] == "error"
-        assert "LLM API" in record["error"]
+        assert record["error"] == "agent_execution_failed"
 
 
 class TestCLIIntegration:

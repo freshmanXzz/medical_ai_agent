@@ -81,3 +81,103 @@ def test_save_failure_is_not_success():
     agent._agent.invoke.return_value = {"messages": [AIMessage(content="done")]}
     with pytest.raises(CasePersistenceError, match="病例保存失败"):
         agent.invoke({"input": "hello"})
+
+
+@pytest.mark.parametrize(
+    "tool_name",
+    [
+        "save_long_term_memory",
+        "save_report_preference",
+        "retract_long_term_memory",
+    ],
+)
+def test_memory_mutation_refreshes_next_model_prompt(monkeypatch, tool_name):
+    from types import SimpleNamespace
+
+    from martin.agent.agent import _case_context_prompt, _memory_prompt_var
+    from martin.agent.report_scope import reset_report_scope, set_report_scope
+    from martin.memory.interaction import (
+        MemoryInteraction,
+        reset_interaction,
+        set_interaction,
+    )
+
+    router = MagicMock()
+    router.retrieve.return_value.to_prompt.return_value = "CURRENT MEMORY STATE"
+    monkeypatch.setattr("martin.memory.router.MemoryRetrievalRouter", lambda: router)
+    request = SimpleNamespace(
+        state={
+            "messages": [
+                HumanMessage(content="withdraw", id="real-message"),
+                AIMessage(
+                    content="", tool_calls=[{"id": "m", "name": tool_name, "args": {}}]
+                ),
+                ToolMessage(content="completed", tool_call_id="m"),
+            ]
+        },
+        override=lambda **kwargs: SimpleNamespace(**kwargs),
+    )
+    actor = set_report_scope("doctor", "thread")
+    interaction = set_interaction(MemoryInteraction("real-message", "withdraw"))
+    memory = _memory_prompt_var.set("STALE MEMORY STATE")
+    try:
+        prompt = _case_context_prompt.wrap_model_call(
+            request, lambda req: req.system_message.content
+        )
+    finally:
+        _memory_prompt_var.reset(memory)
+        reset_interaction(interaction)
+        reset_report_scope(actor)
+    assert "CURRENT MEMORY STATE" in prompt
+    assert "STALE MEMORY STATE" not in prompt
+    router.retrieve.assert_called_once_with("doctor", "thread", "withdraw")
+
+
+def test_execution_logger_never_writes_tool_text(monkeypatch):
+    from martin.agent.agent import AgentLoggingHandler
+
+    log = MagicMock()
+    monkeypatch.setattr("martin.agent.agent._get_thinking_logger", lambda: log)
+    handler = AgentLoggingHandler()
+    handler.on_tool_start(
+        {"name": "generate_report"},
+        {
+            "reasoning": "private reasoning",
+            "patient": "private patient",
+        },
+    )
+    handler.on_tool_end("private report")
+    assert "private" not in str(log.mock_calls)
+    assert "tool_completed" in str(log.mock_calls)
+
+
+def test_case_tool_logs_no_user_input(caplog):
+    from martin.agent.tools import reset_case_context, set_case_context
+
+    token = set_case_context(CaseContext())
+    try:
+        with caplog.at_level("INFO", logger="martin.agent.tools"):
+            update_case_context.invoke({"user_input": "synthetic-private-canary"})
+    finally:
+        reset_case_context(token)
+    assert "update_case_context" in caplog.text
+    assert "synthetic-private-canary" not in caplog.text
+
+
+def test_knowledge_tool_logs_no_query_or_provider_exception(monkeypatch, caplog):
+    from martin.agent import tools
+
+    monkeypatch.setattr(tools, "get_vector_store", lambda: object())
+
+    def fail_search(*args, **kwargs):
+        raise RuntimeError("synthetic-private-exception-canary")
+
+    monkeypatch.setattr(tools, "search_by_query", fail_search)
+    with caplog.at_level("INFO", logger="martin.agent.tools"):
+        result = tools.retrieve_knowledge.invoke(
+            {"query": "synthetic-private-query-canary"}
+        )
+    assert "错误:" in result
+    assert "RuntimeError" in caplog.text
+    assert "synthetic-private" not in caplog.text
+    assert all(record.exc_info is None for record in caplog.records)

@@ -182,6 +182,72 @@ export const logoutDoctor = () => api.post('/auth/logout')
 
 export const getCurrentDoctor = () => api.get<DoctorInfo>('/auth/me')
 
+// ---------- 长期记忆治理 ----------
+export type EditableMemoryType = 'workflow_preference' | 'clinical_decision' | 'historical_discussion' | 'task_followup' | 'correction' | 'clinical_claim'
+
+export interface MemoryProvenance {
+  kind: 'message' | 'api_submission' | 'business_event' | 'legacy_unknown'
+  actor_id?: string | null
+  message_id?: string | null
+  submission_id?: string | null
+  thread_id?: string | null
+}
+
+export interface MemoryRecord {
+  memory_id: string
+  memory_type: string
+  text: string
+  data: Record<string, unknown>
+  status: 'active' | 'superseded' | 'retracted' | 'invalid'
+  logical_key?: string | null
+  observed_at?: string | null
+  created_at?: string | null
+  valid_until?: string | null
+  source_message_id?: string | null
+  provenance?: MemoryProvenance
+  supersedes?: string | null
+  audit_events?: { action: string; actor_id: string; occurred_at: string; reason?: string }[]
+}
+
+export interface MemoryFragment {
+  memory_type: EditableMemoryType
+  text: string
+  logical_key?: string | null
+  data?: Record<string, unknown>
+  observed_at?: string | null
+  valid_until?: string | null
+}
+
+export interface ReportStylePreference {
+  conclusion_first: boolean
+  max_words: number | null
+  complex_case_unlimited: boolean
+  focus: string[]
+}
+
+export interface MemoryWriteResponse {
+  status: 'saved'
+  records: MemoryRecord[]
+  deduplicated: number
+  index_available: boolean
+  error_code?: string | null
+}
+
+const memoryRecordsPath = (threadId: string) => `/memory/threads/${encodeURIComponent(threadId)}/records`
+export const listMemoryRecords = (threadId: string, includeInactive = false) =>
+  api.get<{ records: MemoryRecord[] }>(memoryRecordsPath(threadId), { params: { include_inactive: includeInactive } })
+export const getMemoryHistory = (threadId: string, memoryId: string) =>
+  api.get<{ records: MemoryRecord[] }>(`${memoryRecordsPath(threadId)}/${encodeURIComponent(memoryId)}/history`)
+export const writeMemoryRecord = (threadId: string, candidate: MemoryFragment) =>
+  api.post<MemoryWriteResponse>(memoryRecordsPath(threadId), { candidates: [candidate] })
+export const reviseMemoryRecord = (threadId: string, memoryId: string, candidate: MemoryFragment, reason: string) =>
+  api.post<MemoryWriteResponse>(`${memoryRecordsPath(threadId)}/${encodeURIComponent(memoryId)}/revise`, { candidate, reason })
+export const retractMemoryRecord = (threadId: string, memoryId: string, reason: string) =>
+  api.post<{ status: 'retracted'; record: MemoryRecord }>(`${memoryRecordsPath(threadId)}/${encodeURIComponent(memoryId)}/retract`, { reason })
+export const getReportStylePreference = () => api.get<Partial<ReportStylePreference>>('/memory/preferences/report-style')
+export const saveReportStylePreference = (preference: ReportStylePreference) =>
+  api.post<{ status: 'saved'; record: MemoryRecord }>('/memory/preferences/report-style', preference)
+
 // 未登录（401）时统一踢回登录页；登录请求本身除外
 api.interceptors.response.use(
   (resp) => resp,

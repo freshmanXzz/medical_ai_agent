@@ -9,13 +9,13 @@ import dataclasses
 import json
 import logging
 import os
-from pathlib import Path
 import re
 import socket
 import sys
 import threading
 import time
 from datetime import datetime, timezone
+from pathlib import Path
 from unittest.mock import patch
 
 REPO = Path(__file__).resolve().parents[1]
@@ -28,7 +28,8 @@ missing = [name for name in ("DEEPSEEK_API_KEY", "DEEPSEEK_BASE_URL", "DEEPSEEK_
            if not os.environ.get(name)]
 if missing:
     raise SystemExit("Missing LLM configuration: " + ", ".join(missing))
-RUN = ROOT / "validation" / ("store-v1-live-" + datetime.now().strftime("%Y%m%d-%H%M%S-%f"))
+OUTPUT_ROOT = Path(os.environ.get("MARTIN_ACCEPTANCE_OUTPUT_DIR", ROOT / "validation"))
+RUN = OUTPUT_ROOT / ("store-v1-live-" + datetime.now().strftime("%Y%m%d-%H%M%S-%f"))
 RUN.mkdir(parents=True)
 PORT = int(os.environ.get("MARTIN_ACCEPTANCE_PORT", "0"))
 os.environ.update({
@@ -55,13 +56,14 @@ logging.disable(logging.CRITICAL)
 import httpx
 import uvicorn
 from langchain_core.callbacks import BaseCallbackHandler
-from langchain_core.messages import SystemMessage, HumanMessage
+from langchain_core.messages import HumanMessage, SystemMessage
 from langgraph.store.sqlite import SqliteStore
+
 from martin.agent.audit import AuditLogger
-from martin.agent.sessions import get_default_checkpointer, close_default_checkpointer
-from martin.llm.chat_model import get_chat_model, clear_chat_model_cache
+from martin.agent.sessions import close_default_checkpointer, get_default_checkpointer
+from martin.llm.chat_model import clear_chat_model_cache, get_chat_model
 from martin.memory.service import MemoryService
-from martin.memory.store import get_default_store, close_default_store
+from martin.memory.store import close_default_store, get_default_store
 from scripts.seed_entity_v0 import seed_entity_v0
 
 phase = "setup"

@@ -16,15 +16,15 @@ from langchain_core.tools import tool
 
 from martin.agent.case_context import CaseContext
 from martin.agent.report_scope import current_report_scope
-from martin.memory.actor import current_actor_id
-from martin.vision.nodule_detector import NoduleDetector
 from martin.llm.chain import (
     _generate_template_report,
-    generate_report as chain_generate_report,
 )
+from martin.llm.chain import generate_report as chain_generate_report
+from martin.memory.actor import current_actor_id
 from martin.rag.retriever import format_results, search_by_detection, search_by_query
 from martin.rag.vector_store import get_vector_store
-from martin.utils.oss_client import is_oss_path, parse_oss_path, get_oss_client
+from martin.utils.oss_client import get_oss_client, is_oss_path, parse_oss_path
+from martin.vision.nodule_detector import NoduleDetector
 
 logger = logging.getLogger(__name__)
 
@@ -86,35 +86,54 @@ def reset_case_context(token) -> None:
 @tool
 def save_report_preference(
     conclusion_first: bool = True,
-    max_words: int = 200,
+    max_words: int | None = 200,
     focus: list[str] | None = None,
     reasoning: str = "",
+    complex_case_unlimited: bool = False,
 ) -> str:
     """保存当前登录医生明确提出的跨会话报告风格偏好。"""
     doctor_id = current_actor_id()
     if doctor_id is None:
         return "错误: 未登录医生，不能保存长期偏好。"
-    if not 50 <= max_words <= 1000 or len(focus or []) > 10:
+    if (
+        max_words is not None
+        and (type(max_words) is not int or not 50 <= max_words <= 1000)
+    ) or len(focus or []) > 10:
         return "错误: 报告偏好范围无效。"
+    from martin.agent.report_scope import current_report_scope
+    from martin.memory.interaction import current_interaction
     from martin.memory.service import MemoryService
 
+    interaction, scope = current_interaction(), current_report_scope()
+    if interaction is None or scope is None:
+        return "错误: 缺少本轮医生消息来源，不能保存长期偏好。"
+
     try:
-        MemoryService().save_doctor_preference(
+        record = MemoryService().save_doctor_preference(
             doctor_id,
             "report_style",
             {
                 "conclusion_first": conclusion_first,
                 "max_words": max_words,
                 "focus": focus or [],
+                "complex_case_unlimited": complex_case_unlimited,
+            },
+            provenance={
+                "kind": "message",
+                "actor_role": "doctor",
+                "actor_id": doctor_id,
+                "message_id": interaction.interaction_id,
+                "thread_id": scope.thread_id,
             },
         )
-    except Exception:
-        logger.warning("医生报告偏好保存失败", exc_info=True)
+    except Exception as exc:
+        logger.warning("医生报告偏好保存失败: %s", type(exc).__name__)
         return (
             "错误: 长期偏好保存失败；偏好仅可用于本次回答，后续会话可能无法恢复。"
             "不得声称已保存或已记住。"
         )
-    return "报告偏好已保存，后续会话将继续使用。"
+    memory_id = record.get("memory_id", "") if isinstance(record, dict) else ""
+    return f"报告偏好已保存，后续会话将继续使用。记忆标识：{memory_id}"
 
 
 def _normalize_detection_result(result: Dict) -> None:
@@ -216,25 +235,25 @@ def analyze_image(image_path: str, reasoning: str = "") -> str:
 
     Args:
         image_path: CT图像文件路径或 OSS 对象名（支持 oss://bucket/object 格式）。
-        reasoning: 推理过程记录（不参与业务逻辑）。
+        reasoning: 简短公开行动说明（不参与业务逻辑，不提供思维链）。
 
     Returns:
         格式化文本，包含结节数量、每个结节的直径/置信度/位置信息。
     """
-    logger.info("调用 analyze_image 工具，图像路径: %s", image_path)
+    logger.info("调用 analyze_image 工具")
 
     # OSS 路径处理：先下载到临时目录
     temp_file_path = None
     actual_path = image_path
     if is_oss_path(image_path):
-        logger.info("检测到 OSS 路径，开始下载: %s", image_path)
+        logger.info("检测到 OSS 路径，开始下载")
         try:
             _, object_name = parse_oss_path(image_path)
             client = get_oss_client()
             temp_file_path = client.download_file(object_name)
             actual_path = temp_file_path
         except Exception as e:
-            logger.error("从 OSS 下载文件失败: %s", e, exc_info=True)
+            logger.error("从 OSS 下载文件失败: %s", type(e).__name__)
             return f"错误: 从 OSS 下载文件失败: {e}"
 
     try:
@@ -242,26 +261,26 @@ def analyze_image(image_path: str, reasoning: str = "") -> str:
         with _detector_inference_lock:
             result = detector.detect(actual_path)
     except FileNotFoundError:
-        logger.error("图像文件不存在: %s", actual_path)
+        logger.error("图像文件不存在")
         return f"错误: 图像文件不存在: {image_path}"
     except Exception as e:
-        logger.error("图像检测失败: %s", e, exc_info=True)
+        logger.error("图像检测失败: %s", type(e).__name__)
         return f"错误: 图像分析失败: {e}"
     finally:
         # 清理 OSS 下载的临时文件
         if temp_file_path and os.path.exists(temp_file_path):
             try:
                 os.remove(temp_file_path)
-                logger.info("已清理临时下载文件: %s", temp_file_path)
+                logger.info("已清理临时下载文件")
             except OSError as e:
-                logger.warning("清理临时文件失败: %s", e)
+                logger.warning("清理临时文件失败: %s", type(e).__name__)
 
     # 将检测结果同步到当前会话的病例上下文
     try:
         case_context = get_case_context()
         case_context.update_from_detection(result)
     except Exception as e:
-        logger.warning("同步检测结果到病例上下文失败: %s", e)
+        logger.warning("同步检测结果到病例上下文失败: %s", type(e).__name__)
 
     nodules = result.get("nodules", [])
     total = result.get("total_nodules", 0)
@@ -309,7 +328,7 @@ def retrieve_knowledge(
     Args:
         detection_context: 检测结果的 JSON 格式字符串（检测模式）。
         query: 自由文本查询，如"什么是Lung-RADS分级"（查询模式）。
-        reasoning: 推理过程记录（不参与业务逻辑）。
+        reasoning: 简短公开行动说明（不参与业务逻辑，不提供思维链）。
 
     Returns:
         格式化的知识库相关片段，包含来源标注。
@@ -323,11 +342,11 @@ def retrieve_knowledge(
 
     # 查询模式：自由文本直接检索
     if query:
-        logger.info("自由文本查询模式: %s", query)
+        logger.info("自由文本查询模式")
         try:
             results = search_by_query(query, top_k=5, threshold=0.3)
         except Exception as e:
-            logger.warning("知识库文本检索失败: %s", e)
+            logger.warning("知识库文本检索失败: %s", type(e).__name__)
             return f"错误: 知识库检索失败: {e}"
         return format_results(results)
 
@@ -346,7 +365,7 @@ def retrieve_knowledge(
             detection_result, top_k=5, threshold=0.7
         )
     except Exception as e:
-        logger.warning("知识库检索失败: %s", e)
+        logger.warning("知识库检索失败: %s", type(e).__name__)
         return f"错误: 知识库检索失败: {e}"
 
     context = format_results(results)
@@ -355,7 +374,7 @@ def retrieve_knowledge(
     try:
         get_case_context().set_knowledge_summary(context[:2000])
     except Exception as e:
-        logger.warning("同步知识摘要到病例上下文失败: %s", e)
+        logger.warning("同步知识摘要到病例上下文失败: %s", type(e).__name__)
 
     logger.info("检索到 %d 条相关知识", len(results))
     return context
@@ -370,12 +389,12 @@ def update_case_context(user_input: str, reasoning: str = "") -> str:
 
     Args:
         user_input: 包含患者信息的自然语言文本。
-        reasoning: 推理过程记录（不参与业务逻辑）。
+        reasoning: 简短公开行动说明（不参与业务逻辑，不提供思维链）。
 
     Returns:
         更新摘要，仅列出实际识别到的患者信息字段。
     """
-    logger.info("调用 update_case_context 工具，用户输入: %s", user_input)
+    logger.info("调用 update_case_context 工具")
 
     case_context = get_case_context()
     updates = CaseContext.extract_patient_info(user_input)
@@ -417,16 +436,12 @@ def generate_report(
         report_type: 报告类型，可选 brief / detailed / research，默认为 detailed。
         language: 报告语言，zh（中文）或 en（英文），默认为 zh。
         case_context: 病例上下文的 JSON 格式字符串，默认为空字典字符串。
-        reasoning: 推理过程记录（不参与业务逻辑）。
+        reasoning: 简短公开行动说明（不参与业务逻辑，不提供思维链）。
 
     Returns:
         Markdown 格式的病例报告。
     """
-    logger.info(
-        "调用 generate_report 工具，类型: %s，语言: %s",
-        report_type,
-        language,
-    )
+    logger.info("调用 generate_report 工具")
 
     scope = current_report_scope()
     if scope is not None:
@@ -485,7 +500,7 @@ def generate_report(
         logger.info("LLM 报告生成完成")
         return report
     except Exception as e:
-        logger.warning("LLM 报告生成失败: %s，降级到模板生成", e)
+        logger.warning("LLM 报告生成失败: %s，降级到模板生成", type(e).__name__)
 
     # 第二级：降级到模板生成
     try:
@@ -493,7 +508,7 @@ def generate_report(
         logger.info("模板降级报告生成完成")
         return report
     except Exception as e:
-        logger.error("模板降级报告生成失败: %s", e, exc_info=True)
+        logger.error("模板降级报告生成失败: %s", type(e).__name__)
         return (
             f"报告生成失败：{e}\n\n"
             f"请稍后重试，或联系系统管理员。"
@@ -509,12 +524,12 @@ def upload_to_oss(local_path: str, object_name: str = "", reasoning: str = "") -
     Args:
         local_path: 本地文件路径。
         object_name: OSS 对象名，为空时自动生成。
-        reasoning: 推理过程记录（不参与业务逻辑）。
+        reasoning: 简短公开行动说明（不参与业务逻辑，不提供思维链）。
 
     Returns:
         上传结果信息，包含对象名和 bucket 名称。
     """
-    logger.info("调用 upload_to_oss 工具，本地路径: %s", local_path)
+    logger.info("调用 upload_to_oss 工具")
 
     if not os.path.isfile(local_path):
         return f"错误: 本地文件不存在: {local_path}"
@@ -530,7 +545,7 @@ def upload_to_oss(local_path: str, object_name: str = "", reasoning: str = "") -
             f"  - size: {file_size} bytes"
         )
     except Exception as e:
-        logger.error("上传到 OSS 失败: %s", e, exc_info=True)
+        logger.error("上传到 OSS 失败: %s", type(e).__name__)
         return f"错误: 上传到 OSS 失败: {e}"
 
 
@@ -542,12 +557,12 @@ def download_from_oss(object_name: str, reasoning: str = "") -> str:
 
     Args:
         object_name: OSS 对象名（如 ct/xxx.nii.gz）。
-        reasoning: 推理过程记录（不参与业务逻辑）。
+        reasoning: 简短公开行动说明（不参与业务逻辑，不提供思维链）。
 
     Returns:
         下载结果信息，包含本地文件路径。
     """
-    logger.info("调用 download_from_oss 工具，对象名: %s", object_name)
+    logger.info("调用 download_from_oss 工具")
 
     try:
         client = get_oss_client()
@@ -559,5 +574,5 @@ def download_from_oss(object_name: str, reasoning: str = "") -> str:
             f"  - local_path: {local_path}"
         )
     except Exception as e:
-        logger.error("从 OSS 下载失败: %s", e, exc_info=True)
+        logger.error("从 OSS 下载失败: %s", type(e).__name__)
         return f"错误: 从 OSS 下载失败: {e}"

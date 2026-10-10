@@ -7,7 +7,6 @@ from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from uuid import uuid4
 
-
 MEMORY_TYPES = frozenset(
     {
         "doctor_preference",
@@ -19,10 +18,17 @@ MEMORY_TYPES = frozenset(
         "historical_discussion",
         "task_followup",
         "correction",
+        "clinical_claim",
     }
 )
 EXACT_MEMORY_TYPES = frozenset(
-    {"doctor_preference", "workflow_preference", "correction", "task_followup"}
+    {
+        "doctor_preference",
+        "workflow_preference",
+        "correction",
+        "clinical_claim",
+        "task_followup",
+    }
 )
 SEMANTIC_MEMORY_TYPES = frozenset({"clinical_decision", "historical_discussion"})
 DERIVED_MEMORY_TYPES = frozenset(
@@ -73,6 +79,7 @@ class MemoryCandidate:
     data: dict = field(default_factory=dict)
     observed_at: str | None = None
     confidence: float = 1.0
+    valid_until: str | None = None
 
     def validate(self) -> None:
         if (
@@ -97,6 +104,12 @@ class MemoryCandidate:
         _validate_data(self.data)
         if self.observed_at is not None:
             normalize_time(self.observed_at)
+        if self.valid_until is not None:
+            if self.memory_type not in ("task_followup", "workflow_preference"):
+                raise ValueError(
+                    "Only temporary tasks and workflow preferences may expire"
+                )
+            normalize_time(self.valid_until)
 
     def key(self) -> str:
         if self.logical_key:
@@ -116,10 +129,15 @@ def new_record(
     source_type: str,
     source_id: str,
     interaction_id: str | None = None,
+    provenance: dict | None = None,
 ) -> dict:
     candidate.validate()
     now = normalize_time(None)
+    from .lifecycle import normalize_provenance
+
+    source = normalize_provenance(provenance, doctor_id=scope.doctor_id)
     return {
+        "schema_version": 2,
         "memory_id": str(uuid4()),
         "memory_type": candidate.memory_type,
         "doctor_id": scope.doctor_id,
@@ -129,6 +147,8 @@ def new_record(
         "source_type": source_type,
         "source_id": source_id,
         "interaction_id": interaction_id,
+        "provenance": source,
+        "source_message_id": source.get("message_id"),
         "created_at": now,
         "observed_at": (
             normalize_time(candidate.observed_at) if candidate.observed_at else now
@@ -139,4 +159,7 @@ def new_record(
         "data": dict(candidate.data),
         "logical_key": candidate.key(),
         "supersedes": None,
+        "valid_until": (
+            normalize_time(candidate.valid_until) if candidate.valid_until else None
+        ),
     }

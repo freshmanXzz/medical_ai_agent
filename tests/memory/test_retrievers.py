@@ -106,7 +106,9 @@ def test_exact_reopens_preferences_and_records_without_vectors(
     with SqliteStore.from_conn_string(str(path)) as store:
         store.setup()
         service = MemoryService(entity_db, store)
-        service.save_doctor_preference("D001", "report_style", {"max_words": 200})
+        preference = service.save_doctor_preference(
+            "D001", "report_style", {"max_words": 200}
+        )
         namespace = ("doctor", "D001", "patient", "P001", "records")
         for record in (
             _record(scope, "corrected", "correction"),
@@ -124,7 +126,7 @@ def test_exact_reopens_preferences_and_records_without_vectors(
         assert snapshot.doctor_preferences["report_style"] == {"max_words": 200}
         assert {record["memory_id"] for record in snapshot.typed_records} == {
             "corrected",
-            "preference:report_style",
+            preference["memory_id"],
         }
         assert snapshot.current_findings[0]["finding_id"] == "F002"
         assert snapshot.historical_observations[0]["finding_id"] == "F001"

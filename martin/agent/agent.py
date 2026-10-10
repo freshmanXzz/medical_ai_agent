@@ -6,18 +6,20 @@
 
 日志分离：
 - 系统日志 → log/YYYY-MM-DD.log（通过标准的 logging 模块）
-- 思维日志 → log/agent_thinking/YYYY-MM-DD.log（Agent 推理过程、工具调用参数、完整 reasoning）
-- 审计日志 → audit/{session_id}.jsonl（结构化 reasoning 审计溯源）
+- 执行日志 → log/agent_thinking/YYYY-MM-DD.log（工具名称和结果状态）
+- 审计日志 → audit/{session_id}.jsonl（最小结构化执行记录）
 """
+
 import logging
 import os
 import re
 from contextvars import ContextVar
 from datetime import datetime
-from uuid import uuid4
 from typing import Any, Dict, List, Optional, Tuple
+from uuid import uuid4
 
-from langchain.agents import AgentState, create_agent as create_langchain_agent
+from langchain.agents import AgentState
+from langchain.agents import create_agent as create_langchain_agent
 from langchain.agents.middleware import ModelRequest, dynamic_prompt
 from langchain_core.agents import AgentAction
 from langchain_core.callbacks import BaseCallbackHandler
@@ -34,24 +36,32 @@ from martin.agent import (
     update_case_context,
     upload_to_oss,
 )
-from martin.agent.prompt import SYSTEM_PROMPT
 from martin.agent.case_context import CaseContext
 from martin.agent.errors import CasePersistenceError
-from martin.agent.tools import get_case_context, reset_case_context, set_case_context
+from martin.agent.prompt import SYSTEM_PROMPT
 from martin.agent.report_scope import reset_report_scope, set_report_scope
-from martin.memory.actor import reset_actor_id, set_actor_id
-from martin.memory.interaction import MemoryInteraction, reset_interaction, set_interaction
-from martin.memory.tools import save_long_term_memory
-from martin.memory.output_preferences import (
-    OutputPreferences,
-    PREFERENCE_WRITE_FAILURE_MESSAGE,
-    PreferenceValidationError,
-    enforce_preferences,
-)
-from martin.llm.chat_model import get_chat_model
 from martin.agent.sessions import (
     SessionManager,
     get_default_checkpointer,
+)
+from martin.agent.tools import get_case_context, reset_case_context, set_case_context
+from martin.llm.chat_model import get_chat_model
+from martin.memory.actor import reset_actor_id, set_actor_id
+from martin.memory.interaction import (
+    MemoryInteraction,
+    reset_interaction,
+    set_interaction,
+)
+from martin.memory.output_preferences import (
+    PREFERENCE_WRITE_FAILURE_MESSAGE,
+    OutputPreferences,
+    PreferenceValidationError,
+    enforce_preferences,
+)
+from martin.memory.tools import (
+    inspect_long_term_memory,
+    retract_long_term_memory,
+    save_long_term_memory,
 )
 
 logger = logging.getLogger(__name__)
@@ -62,7 +72,7 @@ def _get_thinking_logger() -> logging.Logger:
     """创建或获取 Agent 思维日志记录器。
 
     日志写入 log/agent_thinking/YYYY-MM-DD.log，同时输出到控制台。
-    与控制台 print() 不同，该日志器记录完整的 reasoning 和参数（不截断）。
+    沿用历史目录名，仅记录最小执行状态，不保存原始参数或思考文本。
     """
     log_name = "agent_thinking"
     thinking_logger = logging.getLogger(log_name)
@@ -99,7 +109,7 @@ def _get_thinking_logger() -> logging.Logger:
 class AgentLoggingHandler(BaseCallbackHandler):
     """LangChain 回调处理器，记录 Agent 中间步骤日志。
 
-    仅输出到 log/agent_thinking/YYYY-MM-DD.log（完整内容，含时间戳）。
+    仅输出工具名与状态到 log/agent_thinking/YYYY-MM-DD.log。
     """
 
     def __init__(self):
@@ -144,34 +154,21 @@ class AgentLoggingHandler(BaseCallbackHandler):
         self._current_tool_name = tool_name
 
         tool_args = self._parse_tool_input(input_str)
-        self._current_reasoning = (
-            tool_args.pop("reasoning", "") if isinstance(tool_args, dict) else ""
-        )
-        self._current_tool_args = self._extract_args(tool_args)
-        if tool_name == "save_long_term_memory":
-            self._current_tool_args = {"memory_type": tool_args.get("memory_type")}
-            self._current_reasoning = ""
+        self._current_reasoning = ""
+        self._current_tool_args = {}
 
         # --- 思维日志文件（完整内容） ---
         self._thinking_logger.info(
             "[%s] 调用工具: %s", "Agent", tool_name
         )
-        self._thinking_logger.info(
-            "[%s] 工具参数: %s", "Agent", self._current_tool_args
-        )
-        if self._current_reasoning:
-            self._thinking_logger.info(
-                "[%s] 推理过程 (完整 CoT): %s", "Agent", self._current_reasoning
-            )
-        else:
-            self._thinking_logger.info(
-                "[%s] 警告: reasoning 字段缺失", "Agent"
-            )
 
     def on_tool_end(self, output, **kwargs) -> None:
         """工具执行完毕后打印 Observation 日志。"""
         # langgraph 传递的是 ToolMessage 对象
         content = output.content if hasattr(output, "content") else str(output)
+        content = (
+            "tool_failed" if str(content).startswith("错误:") else "tool_completed"
+        )
 
         # --- 思维日志文件（完整） ---
         self._thinking_logger.info(
@@ -221,6 +218,46 @@ def _case_context_prompt(request: ModelRequest) -> str:
     """运行期间以工具使用的同一个对象构建 Prompt，完成后统一保存快照。"""
     prompt = _build_system_prompt({"case_context": get_case_context().to_dict()})
     memory_prompt = _memory_prompt_var.get()
+    # Tool execution may have superseded or withdrawn the snapshot from turn start.
+    # Context variables in parallel tool workers cannot update their parent, so
+    # inspect the completed tool messages when constructing the next model input.
+    messages = request.state.get("messages", [])
+    start = next(
+        (
+            i + 1
+            for i in range(len(messages) - 1, -1, -1)
+            if isinstance(messages[i], HumanMessage)
+        ),
+        0,
+    )
+    mutations = {
+        "save_long_term_memory",
+        "save_report_preference",
+        "retract_long_term_memory",
+    }
+    call_ids = {
+        call["id"]
+        for message in messages[start:]
+        if isinstance(message, AIMessage)
+        for call in message.tool_calls
+        if call["name"] in mutations
+    }
+    if any(
+        isinstance(message, ToolMessage)
+        and message.tool_call_id in call_ids
+        and not str(message.content).startswith("错误:")
+        for message in messages[start:]
+    ):
+        from martin.agent.report_scope import current_report_scope
+        from martin.memory.interaction import current_interaction
+        from martin.memory.router import MemoryRetrievalRouter
+
+        actor, interaction = current_report_scope(), current_interaction()
+        if actor is not None and interaction is not None:
+            context = MemoryRetrievalRouter().retrieve(
+                actor.doctor_id, actor.thread_id, interaction.user_text
+            )
+            memory_prompt = context.to_prompt(interaction.user_text)
     return f"{prompt}\n\n{memory_prompt}" if memory_prompt else prompt
 
 
@@ -318,7 +355,7 @@ class AgentExecutor:
                 config=config,
             )
         except Exception as e:
-            logger.error("Agent 执行失败: %s", e, exc_info=True)
+            logger.error("Agent 执行失败: %s", type(e).__name__)
             return {
                 "output": f"错误: Agent 执行失败: {e}",
                 "intermediate_steps": [],
@@ -344,6 +381,11 @@ class AgentExecutor:
             action.tool == "save_long_term_memory" and str(output).startswith("错误:")
             for action, output in steps
         )
+        retraction_failed = any(
+            action.tool == "retract_long_term_memory"
+            and str(output).startswith("错误:")
+            for action, output in steps
+        )
         write_failed = False
         for action, output in steps:
             if action.tool == "save_report_preference":
@@ -352,6 +394,19 @@ class AgentExecutor:
                 ).for_task(user_input)
                 if str(output).startswith("错误:"):
                     write_failed = True
+            if action.tool == "retract_long_term_memory" and not str(output).startswith(
+                "错误:"
+            ):
+                from martin.memory.service import MemoryService
+
+                try:
+                    current = MemoryService().get_doctor_preferences(self.doctor_id)
+                    preferences = OutputPreferences.from_dict(
+                        current.get("report_style", {})
+                    ).for_task(user_input)
+                except Exception:
+                    # A completed withdrawal must not re-enable cached formatting rules.
+                    preferences = OutputPreferences()
         report_requested = any(action.tool == "generate_report" for action, _ in steps)
         report_requested = report_requested or bool(re.search(
             r"(?:生成|出|写|整理|提供).{0,6}报告", user_input
@@ -370,7 +425,13 @@ class AgentExecutor:
             if preferences.focus_spiculation:
                 parsed_result["output"] += "毛刺征只按已有资料描述。"
 
-        if report_requested:
+        if retraction_failed:
+            parsed_result["memory_write_failed"] = True
+            parsed_result["output"] = (
+                "长期记忆撤回失败，原记忆可能仍生效；请重试，不能视为已取消。"
+            )
+
+        if report_requested and not retraction_failed:
             try:
                 parsed_result["output"], parsed_result["preference_validation"] = (
                     enforce_preferences(
@@ -445,7 +506,7 @@ class AgentExecutor:
                 {"case_context": self.case_context.to_dict()},
             )
         except Exception as exc:
-            logger.error("写回病例上下文 checkpoint 失败", exc_info=True)
+            logger.error("写回病例上下文 checkpoint 失败: %s", type(exc).__name__)
             raise CasePersistenceError("病例保存失败，请重试。") from exc
 
     def _sync_case_context_from_steps(
@@ -470,7 +531,7 @@ class AgentExecutor:
                 elif tool_name == "generate_report" and not is_error:
                     self.case_context.add_clinical_note("已生成病例报告。")
         except Exception as e:
-            logger.warning("从 Agent 结果同步病例上下文失败: %s", e)
+            logger.warning("从 Agent 结果同步病例上下文失败: %s", type(e).__name__)
 
     def _parse_result(self, messages: List) -> Dict[str, Any]:
         """只解析最后一条用户消息之后的调用，按 tool_call_id 配对。"""
@@ -509,8 +570,9 @@ class AgentExecutor:
                 final_output = msg.content or ""
 
         if self.verbose and final_output:
-            self._thinking_logger.info("[Agent] 最终输出:")
-            self._thinking_logger.info(final_output)
+            self._thinking_logger.info(
+                "[Agent] 公开答复已生成，字符数: %d", len(final_output)
+            )
 
         return {
             "output": final_output,
@@ -552,6 +614,8 @@ def create_agent(
         if doctor_id is not None:
             tools.append(save_report_preference)
             tools.append(save_long_term_memory)
+            tools.append(inspect_long_term_memory)
+            tools.append(retract_long_term_memory)
     return AgentExecutor(
         tools=tools,
         verbose=verbose,

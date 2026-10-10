@@ -23,6 +23,7 @@ class OutputPreferences:
     conclusion_first: bool = False
     max_words: int | None = None
     focus_spiculation: bool = False
+    complex_case_unlimited: bool = False
 
     @classmethod
     def from_dict(cls, value):
@@ -34,10 +35,13 @@ class OutputPreferences:
             conclusion_first=value.get("conclusion_first") is True,
             max_words=limit,
             # Free-form preference strings must never become arbitrary instructions.
-            focus_spiculation=isinstance(focus, list) and any(
-                item in ("毛刺", "毛刺征", "spiculation") for item in focus
+            focus_spiculation=isinstance(focus, list)
+            and any(
+                item in ("毛刺", "毛刺征", "spiculation")
+                for item in focus
                 if isinstance(item, str)
             ),
+            complex_case_unlimited=value.get("complex_case_unlimited") is True,
         )
 
     def for_task(self, task: str):
@@ -45,6 +49,10 @@ class OutputPreferences:
         from dataclasses import replace
 
         policy = self
+        if self.complex_case_unlimited and re.search(
+            r"复杂病例|复杂情况|复杂报告|complex case", task, re.I
+        ):
+            policy = replace(policy, max_words=None)
         limit = re.search(r"(\d+)\s*(?:个)?(?:中文字符|汉字|字)(?:以内|内|以下)", task)
         if limit and 50 <= int(limit[1]) <= 1000:
             policy = replace(policy, max_words=int(limit[1]))

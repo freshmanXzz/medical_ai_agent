@@ -151,17 +151,17 @@ V1.1 通过后再进入新的长期记忆架构扩展。
 
 Martin 长期记忆按“内容类型”分类：
 
-| Memory Type | 内容 | 主检索方式 |
-|---|---|---|
-| doctor_preference | 报告格式、长度、关注重点 | 精确检索 |
-| workflow_preference | 医生分析/操作习惯 | 精确检索，必要时语义 |
-| patient_fact | 患者稳定事实 | Business DB 精确检索 |
-| medical_observation | 结节大小、部位、征象等 | 精确 + 时间 |
-| clinical_decision | 为什么随访/进一步检查等 | 语义 + 时间 |
-| case_evolution | 6mm→8mm、征象变化 | 时间事件链 |
-| historical_discussion | 过去病例讨论、推理背景 | 语义向量 |
-| task_followup | 复查、等待结果、下次比较 | 精确 + 时间 |
-| correction | 用户明确纠正的信息 | 精确，必要时语义 |
+| Memory Type           | 内容           | 主检索方式            |
+| --------------------- | ------------ | ---------------- |
+| doctor_preference     | 报告格式、长度、关注重点 | 精确检索             |
+| workflow_preference   | 医生分析/操作习惯    | 精确检索，必要时语义       |
+| patient_fact          | 患者稳定事实       | Business DB 精确检索 |
+| medical_observation   | 结节大小、部位、征象等  | 精确 + 时间          |
+| clinical_decision     | 为什么随访/进一步检查等 | 语义 + 时间          |
+| case_evolution        | 6mm→8mm、征象变化 | 时间事件链            |
+| historical_discussion | 过去病例讨论、推理背景  | 语义向量             |
+| task_followup         | 复查、等待结果、下次比较 | 精确 + 时间          |
+| correction            | 用户明确纠正的信息    | 精确，必要时语义         |
 
 每条长期记忆必须保留来源信息，例如：
 

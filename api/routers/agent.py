@@ -3,22 +3,14 @@
 封装已有 AgentExecutor，提供 REST 和 WebSocket 两种交互方式。
 不重新实现 Agent 逻辑，仅做 API 封装。
 """
+import asyncio
 import json
 import logging
-import asyncio
 
 from fastapi import APIRouter, Depends, HTTPException, WebSocket, WebSocketDisconnect
 from langchain_core.agents import AgentAction
 
-from martin.agent.errors import CasePersistenceError
-from martin.auth.session_service import DoctorIdentity, SessionService
-from martin.services.access_service import AccessDeniedError, EntityNotFoundError
-from martin.services.thread_service import ThreadService
-from martin.memory.output_preferences import PreferenceValidationError
-from martin.memory.service import MemoryService
-from martin.memory.router import MemoryRetrievalRouter
 from api.deps.auth import COOKIE_NAME, get_current_doctor, require_thread_access
-
 from api.models import (
     AttachmentInfo,
     ChatRequest,
@@ -26,6 +18,13 @@ from api.models import (
     ToolCallInfo,
     WsStatusMessage,
 )
+from martin.agent.errors import CasePersistenceError
+from martin.auth.session_service import DoctorIdentity, SessionService
+from martin.memory.output_preferences import PreferenceValidationError
+from martin.memory.router import MemoryRetrievalRouter
+from martin.memory.service import MemoryService
+from martin.services.access_service import AccessDeniedError, EntityNotFoundError
+from martin.services.thread_service import ThreadService
 
 logger = logging.getLogger(__name__)
 router = APIRouter(tags=["Agent 对话"])
@@ -110,7 +109,7 @@ def agent_chat(request: ChatRequest, doctor: DoctorIdentity = Depends(get_curren
             "report_style", {}
         )
     except ValueError as exc:
-        logger.warning("Agent 尚未完成配置: %s", exc)
+        logger.warning("Agent 尚未完成配置: %s", type(exc).__name__)
         raise HTTPException(
             status_code=503,
             detail="Agent 尚未完成配置，请检查 DEEPSEEK_API_KEY。",
@@ -153,7 +152,7 @@ def agent_chat(request: ChatRequest, doctor: DoctorIdentity = Depends(get_curren
     except PreferenceValidationError as e:
         raise HTTPException(status_code=502, detail=str(e)) from e
     except Exception as e:
-        audit_logger.log_agent_error(str(e))
+        audit_logger.log_agent_error(type(e).__name__)
         raise HTTPException(status_code=502, detail="Agent 执行失败，请稍后重试。") from e
     failure_detail = _agent_failure_detail(result)
     if failure_detail:
@@ -359,8 +358,8 @@ async def agent_websocket(websocket: WebSocket, session_id: str):
                     content="无效的消息格式",
                 ).model_dump())
             except Exception as e:
-                logger.error("Agent WebSocket 处理失败: %s", e, exc_info=True)
-                audit_logger.log_agent_error(str(e))
+                logger.error("Agent WebSocket 处理失败: %s", type(e).__name__)
+                audit_logger.log_agent_error(type(e).__name__)
                 await websocket.send_json(WsStatusMessage(
                     type="error",
                     content="Agent 执行失败，请稍后重试。",
@@ -369,4 +368,4 @@ async def agent_websocket(websocket: WebSocket, session_id: str):
     except WebSocketDisconnect:
         logger.info("WebSocket 连接断开: session_id=%s", session_id)
     except Exception as e:
-        logger.error("WebSocket 异常: %s", e, exc_info=True)
+        logger.error("WebSocket 异常: %s", type(e).__name__)

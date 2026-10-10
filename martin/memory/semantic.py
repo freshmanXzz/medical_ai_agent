@@ -36,11 +36,13 @@ class SemanticRetriever:
         return revalidate_scope(scope, db_path=self.service.db_path)
 
     def _valid(self, scope, record, memory_types) -> bool:
+        from .lifecycle import is_record_active
+
         return bool(
             record
             and record.get("doctor_id") == scope.doctor_id
             and record.get("patient_id") == scope.patient_id
-            and record.get("status") == "active"
+            and is_record_active(record)
             and record.get("memory_type") in memory_types
             and isinstance(record.get("text"), str)
             and record["text"].strip()

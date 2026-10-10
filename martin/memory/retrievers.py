@@ -18,7 +18,13 @@ from .scope import MemoryScope, _authorize_scope_on_connection
 logger = logging.getLogger(__name__)
 
 EXACT_RECORD_TYPES = frozenset(
-    {"doctor_preference", "workflow_preference", "correction", "task_followup"}
+    {
+        "doctor_preference",
+        "workflow_preference",
+        "correction",
+        "task_followup",
+        "clinical_claim",
+    }
 )
 
 

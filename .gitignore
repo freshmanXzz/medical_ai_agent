@@ -88,3 +88,17 @@ build/
 *.egg-info/
 LOCAL_NOTES.md
 .workbuddy/
+
+# V2.1 隔离验收与本机工具产物，不包含用户的其他 tmp 文件
+/tmp/validation/
+/tmp/pytest-v21-*/
+/tmp/v21-*/
+/tmp/v21_ui_server.py
+/tmp/v21-format-changes.py
+/tmp/v21-memory-management-*.jpg
+
+# V2.2 隔离基线、验收及本机快照
+/tmp/v22-*/
+/tmp/pytest-v22-*/
+/tmp/v22-*.py
+/tmp/v22-*.jpg
