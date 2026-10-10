@@ -334,7 +334,15 @@ class MemoryService:
                     )
                 )
             revalidate_scope(scope, db_path=self.db_path, write=True)
+            from .summaries import invalidate_summary_operations
+
+            invalidations = invalidate_summary_operations(self, scope, [memory_id])
+            operations.extend(invalidations)
             atomic_batch(self._store(), operations)
+            if invalidations:
+                from .governance_jobs import enqueue_from_policy
+
+                enqueue_from_policy(self, scope, force=True)
             return updated
 
     def _doctor(self, doctor_id: str) -> None:
@@ -393,7 +401,24 @@ class MemoryService:
                 if is_record_active(row) and self._valid_doctor_record(doctor_id, row)
             ]
             if len(active) == 1 and active[0].get("data") == value:
-                return active[0]
+                from .deduplication import reinforce
+
+                strengthened = reinforce(active[0], record, reason="exact_duplicate")
+                if strengthened is not active[0]:
+                    if not self._valid_doctor_record(doctor_id, strengthened):
+                        raise ValueError("Reinforced preference source is invalid")
+                    self._doctor(doctor_id)
+                    atomic_batch(
+                        self._store(),
+                        [
+                            PutOp(
+                                namespace=doctor_records_ns(doctor_id),
+                                key=strengthened["memory_id"],
+                                value=strengthened,
+                            )
+                        ],
+                    )
+                return strengthened
             record["revision"] = (
                 max((row.get("revision", 1) for row in previous), default=0) + 1
             )
@@ -495,6 +520,17 @@ class MemoryService:
                     thread = ThreadRepository(connection).get_by_id(source["thread_id"])
                     if thread is None or thread["doctor_id"] != doctor_id:
                         return False
+            reinforced = record.get("reinforced_sources", [])
+            if not isinstance(reinforced, list):
+                return False
+            for reference in reinforced:
+                if not isinstance(reference, dict):
+                    return False
+                occurrence = dict(record, **reference)
+                occurrence.pop("reinforced_sources", None)
+                occurrence.pop("deduplication_events", None)
+                if not self._valid_doctor_record(doctor_id, occurrence):
+                    return False
             return True
         except (ValueError, TypeError, KeyError):
             return False
@@ -613,7 +649,8 @@ class MemoryService:
 
     @staticmethod
     def _legacy_context(
-        items, *, doctor_id=None, patient_id=None, case_id=None
+        items, *, doctor_id=None, patient_id=None, case_id=None,
+        require_doctor_source=False, decisions=None, source_db_path=None,
     ) -> dict:
         """Label incomplete legacy sources and apply lifecycle before injection."""
         result = {}
@@ -621,6 +658,55 @@ class MemoryService:
             if not isinstance(item.value, dict) or not is_record_active(item.value):
                 continue
             value = dict(item.value)
+            if require_doctor_source:
+                from .summaries import fingerprint
+
+                reference = "legacy-case:" + fingerprint([case_id, item.key])[:24]
+                reason = None
+                if not value.get("doctor_id") or not isinstance(
+                    value.get("provenance"), dict
+                ):
+                    reason = "source_unknown"
+                elif value.get("doctor_id") != doctor_id:
+                    reason = "scope_denied"
+                elif (
+                    value.get("patient_id") != patient_id
+                    or value.get("case_id") != case_id
+                    or value.get("source_type") != "case"
+                    or value.get("source_id") != case_id
+                ):
+                    reason = "source_unknown"
+                else:
+                    try:
+                        provenance = normalize_provenance(
+                            value["provenance"], doctor_id=doctor_id
+                        )
+                        if provenance["kind"] not in ("message", "api_submission"):
+                            reason = "source_unknown"
+                        elif provenance.get("thread_id"):
+                            with transaction(source_db_path) as connection:
+                                thread = ThreadRepository(connection).get_by_id(
+                                    provenance["thread_id"]
+                                )
+                                if (
+                                    thread is None
+                                    or thread["doctor_id"] != doctor_id
+                                    or thread["case_id"] != case_id
+                                ):
+                                    reason = "source_unknown"
+                    except (TypeError, ValueError):
+                        reason = "source_unknown"
+                if reason is not None:
+                    if decisions is not None:
+                        decisions.append(
+                            {
+                                "memory_id": reference,
+                                "category": "legacy_case_memory",
+                                "eligible": False,
+                                "reason": reason,
+                            }
+                        )
+                    continue
             if any(
                 expected is not None and value.get(key) not in (None, expected)
                 for key, expected in (
@@ -635,9 +721,14 @@ class MemoryService:
                     normalize_provenance(value["provenance"], doctor_id=doctor_id)
                 except (TypeError, ValueError):
                     continue
-            value["provenance"] = {"kind": "legacy_unknown"}
+            if not require_doctor_source:
+                value["provenance"] = {"kind": "legacy_unknown"}
             value["authority"] = "unverified_context"
-            value["injection_reason"] = "active_legacy_context"
+            value["injection_reason"] = (
+                "active_scoped_case_context"
+                if require_doctor_source
+                else "active_legacy_context"
+            )
             result[item.key] = value
         return result
 
@@ -669,19 +760,42 @@ class MemoryService:
         self, doctor_id: str, case_id: str, key: str, value: dict[str, Any]
     ) -> None:
         with transaction(self.db_path) as connection:
-            AccessService(connection).get_case_authorized(
+            case = AccessService(connection).get_case_authorized(
                 doctor_id, case_id, write=True
             )
-            self._store().put(case_memory_ns(case_id), key, value)
+            from uuid import uuid4
+
+            if not isinstance(value, dict):
+                raise ValueError("Case memory must be a structured object")
+            stored = dict(
+                value,
+                doctor_id=doctor_id,
+                patient_id=case["patient_id"],
+                case_id=case_id,
+                source_type="case",
+                source_id=case_id,
+                provenance=normalize_provenance(
+                    {
+                        "kind": "api_submission",
+                        "actor_id": doctor_id,
+                        "actor_role": "doctor",
+                        "submission_id": str(uuid4()),
+                    },
+                    doctor_id=doctor_id,
+                ),
+            )
+            self._store().put(
+                ("doctor", doctor_id, "case", case_id, "memory"), key, stored
+            )
 
     def get_case_memories(self, doctor_id: str, case_id: str) -> dict[str, dict]:
         with transaction(self.db_path) as connection:
-            AccessService(connection).get_case_authorized(doctor_id, case_id)
-            return {
-                item.key: item.value
-                for item in self._store().search(case_memory_ns(case_id), limit=100)
-                if isinstance(item.value, dict) and is_record_active(item.value)
-            }
+            case = AccessService(connection).get_case_authorized(doctor_id, case_id)
+            items = [*self._store().search(case_memory_ns(case_id), limit=100),
+                     *self._store().search(("doctor", doctor_id, "case", case_id, "memory"), limit=100)]
+            return self._legacy_context(items,
+                                        doctor_id=doctor_id, patient_id=case["patient_id"], case_id=case_id,
+                                        require_doctor_source=True, source_db_path=self.db_path)
 
     def sync_finding(self, doctor_id: str, finding_id: str) -> str:
         """Derive one observation from a confirmed business Finding."""
@@ -744,9 +858,7 @@ class MemoryService:
             key=lambda item: (item["observed_at"], item["finding_id"]),
         )
 
-    def get_patient_observations(
-        self, doctor_id: str, patient_id: str
-    ) -> list[dict]:
+    def get_patient_observations(self, doctor_id: str, patient_id: str) -> list[dict]:
         with transaction(self.db_path) as connection:
             AccessService(connection).get_patient_authorized(doctor_id, patient_id)
             return self._reconcile_observations(connection, patient_id, self._store())
@@ -779,10 +891,16 @@ class MemoryService:
                     doctor_id=doctor_id,
                     patient_id=patient_id,
                 )
+                case_memory_governance = []
                 case_memories = self._legacy_context(
-                    store.search(case_memory_ns(case["id"]), limit=100),
+                    [*store.search(case_memory_ns(case["id"]), limit=100),
+                     *store.search(("doctor", doctor_id, "case", case["id"], "memory"), limit=100)],
+                    doctor_id=doctor_id,
                     patient_id=patient_id,
                     case_id=case["id"],
+                    require_doctor_source=True,
+                    decisions=case_memory_governance,
+                    source_db_path=self.db_path,
                 )
             except Exception as exc:
                 logger.warning(
@@ -804,6 +922,7 @@ class MemoryService:
                     and self._is_prior_observation(item, current)
                 ],
                 case_memories=case_memories,
+                case_memory_governance=case_memory_governance,
             )
 
     @staticmethod

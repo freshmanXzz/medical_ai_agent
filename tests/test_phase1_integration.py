@@ -3,6 +3,7 @@
 Only the external LLM and detector are replaced; graph execution, tool routing,
 checkpoint writes, HTTP and WebSocket adapters run production code.
 """
+import json
 import logging
 import sqlite3
 from unittest.mock import MagicMock
@@ -107,8 +108,11 @@ def test_next_model_prompt_sees_tool_update_in_same_turn(monkeypatch, tmp_path):
     assert len(model._inputs) == 2
     first = next(m.content for m in model._inputs[0] if isinstance(m, SystemMessage))
     second = next(m.content for m in model._inputs[1] if isinstance(m, SystemMessage))
-    assert "【当前病例上下文】" not in first
-    assert "年龄：62 岁" in second.split("【当前病例上下文】", 1)[1]
+    marker = "[memory:当前病例上下文:患者信息]\n"
+    assert marker not in first
+    patient_info, _ = json.JSONDecoder().raw_decode(second.split(marker, 1)[1])
+    assert patient_info["age"] == 62
+    assert patient_info["gender"] is None
 
 
 @pytest.mark.parametrize("has_nodule", [True, False])

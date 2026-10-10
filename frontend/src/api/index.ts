@@ -173,6 +173,7 @@ export interface DoctorInfo {
   id: string
   username: string
   display_name: string
+  capabilities?: { budget_admin: boolean }
 }
 
 export const loginDoctor = (username: string, password: string) =>
@@ -247,6 +248,88 @@ export const retractMemoryRecord = (threadId: string, memoryId: string, reason: 
 export const getReportStylePreference = () => api.get<Partial<ReportStylePreference>>('/memory/preferences/report-style')
 export const saveReportStylePreference = (preference: ReportStylePreference) =>
   api.post<{ status: 'saved'; record: MemoryRecord }>('/memory/preferences/report-style', preference)
+
+// ---------- 上下文预算 ----------
+export type BudgetTask = 'qa' | 'report' | 'followup' | 'default'
+export type BudgetCategory = 'history' | 'rag' | 'memory' | 'summary'
+
+export interface BudgetPolicy {
+  version: number
+  context_window: number
+  reserved_output: number
+  safety_margin: number
+  category_quotas: Record<BudgetTask, Record<BudgetCategory, number>>
+  summary_trigger_count: number
+  summary_trigger_tokens: number
+  minimal_background_tokens: number
+  summary_tokens: number
+  max_stage_batches: number
+  max_stage_tokens: number
+  max_stage_seconds: number
+}
+
+export interface BudgetPolicyResponse {
+  policy: BudgetPolicy
+  version: number
+  source: 'persisted' | 'safe_default'
+  limits: {
+    context_min: number
+    context_max: number
+    output_min: number
+    output_max: number
+    max_stage_batches: number
+    parameter_bounds?: Partial<Record<Exclude<keyof BudgetPolicy, 'category_quotas' | 'version'>, [number, number]>>
+  }
+  can_manage: boolean
+}
+
+export interface BudgetPolicyVersion {
+  version: number
+  policy: BudgetPolicy
+  actor_id: string
+  created_at: string
+  reason: string
+  reverted_from?: number | null
+}
+
+export interface BudgetTraceItem {
+  item_id?: string
+  category: string
+  selected: boolean
+  reason?: string | null
+  token_count?: number
+  estimated_tokens?: number
+  actual_tokens?: number | null
+}
+
+export interface BudgetTrace {
+  request_id?: string
+  policy_version?: number
+  task?: string
+  count_method?: string
+  input_tokens?: number
+  cumulative_tokens?: number
+  usable_input_limit?: number
+  estimated_tokens?: number
+  calls?: Record<string, unknown>[]
+  stages?: Record<string, unknown>[]
+  degraded?: boolean
+  processed_ids?: string[]
+  omitted_ids?: string[]
+  items?: BudgetTraceItem[]
+  reasons?: Record<string, number>
+  [field: string]: unknown
+}
+
+export const getBudgetPolicy = () => api.get<BudgetPolicyResponse>('/memory/budget/policy')
+export const saveBudgetPolicy = (expectedVersion: number, policy: BudgetPolicy, reason: string) =>
+  api.put<BudgetPolicyResponse>('/memory/budget/policy', { expected_version: expectedVersion, policy, reason })
+export const getBudgetPolicyHistory = () =>
+  api.get<{ versions: BudgetPolicyVersion[] }>('/memory/budget/history')
+export const rollbackBudgetPolicy = (expectedVersion: number, targetVersion: number, reason: string) =>
+  api.post<BudgetPolicyResponse>('/memory/budget/rollback', { expected_version: expectedVersion, target_version: targetVersion, reason })
+export const getBudgetTrace = (threadId: string) =>
+  api.get<{ trace: BudgetTrace | null }>('/memory/budget/trace', { params: { thread_id: threadId } })
 
 // 未登录（401）时统一踢回登录页；登录请求本身除外
 api.interceptors.response.use(

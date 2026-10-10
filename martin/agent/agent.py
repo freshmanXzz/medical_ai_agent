@@ -13,6 +13,7 @@
 import logging
 import os
 import re
+from contextlib import ExitStack
 from contextvars import ContextVar
 from datetime import datetime
 from typing import Any, Dict, List, Optional, Tuple
@@ -20,10 +21,10 @@ from uuid import uuid4
 
 from langchain.agents import AgentState
 from langchain.agents import create_agent as create_langchain_agent
-from langchain.agents.middleware import ModelRequest, dynamic_prompt
+from langchain.agents.middleware import ModelRequest, dynamic_prompt, wrap_model_call
 from langchain_core.agents import AgentAction
 from langchain_core.callbacks import BaseCallbackHandler
-from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
+from langchain_core.messages import AIMessage, HumanMessage, SystemMessage, ToolMessage
 from langchain_core.tools import BaseTool
 from langgraph.checkpoint.base import BaseCheckpointSaver
 
@@ -46,6 +47,25 @@ from martin.agent.sessions import (
 )
 from martin.agent.tools import get_case_context, reset_case_context, set_case_context
 from martin.llm.chat_model import get_chat_model
+from martin.llm.context_budget import (
+    BudgetItem,
+    ContextBudgetExceeded,
+    begin_budget_scope,
+    begin_dispatch_check,
+    current_budget_scope,
+    estimate_messages,
+    finish_budget_scope,
+    finish_dispatch_check,
+    get_policy,
+    guard_payload,
+    invoke_guarded,
+    message_dict,
+    project_history,
+    select_context,
+    task_kind,
+    validate_context_sources,
+    verify_dispatch_sources,
+)
 from martin.memory.actor import reset_actor_id, set_actor_id
 from martin.memory.interaction import (
     MemoryInteraction,
@@ -66,6 +86,7 @@ from martin.memory.tools import (
 
 logger = logging.getLogger(__name__)
 _memory_prompt_var: ContextVar[str] = ContextVar("memory_prompt", default="")
+_memory_context_var: ContextVar[Any] = ContextVar("memory_context", default=None)
 
 
 def _get_thinking_logger() -> logging.Logger:
@@ -105,6 +126,7 @@ def _get_thinking_logger() -> logging.Logger:
 
 
 # ─── 日志回调 ───────────────────────────────────────────────
+
 
 class AgentLoggingHandler(BaseCallbackHandler):
     """LangChain 回调处理器，记录 Agent 中间步骤日志。
@@ -158,9 +180,7 @@ class AgentLoggingHandler(BaseCallbackHandler):
         self._current_tool_args = {}
 
         # --- 思维日志文件（完整内容） ---
-        self._thinking_logger.info(
-            "[%s] 调用工具: %s", "Agent", tool_name
-        )
+        self._thinking_logger.info("[%s] 调用工具: %s", "Agent", tool_name)
 
     def on_tool_end(self, output, **kwargs) -> None:
         """工具执行完毕后打印 Observation 日志。"""
@@ -171,9 +191,7 @@ class AgentLoggingHandler(BaseCallbackHandler):
         )
 
         # --- 思维日志文件（完整） ---
-        self._thinking_logger.info(
-            "[%s] 观察结果: %s", "Agent", content
-        )
+        self._thinking_logger.info("[%s] 观察结果: %s", "Agent", content)
         self._thinking_logger.info("")
 
     @staticmethod
@@ -257,11 +275,217 @@ def _case_context_prompt(request: ModelRequest) -> str:
             context = MemoryRetrievalRouter().retrieve(
                 actor.doctor_id, actor.thread_id, interaction.user_text
             )
+            _memory_context_var.set(context)
             memory_prompt = context.to_prompt(interaction.user_text)
     return f"{prompt}\n\n{memory_prompt}" if memory_prompt else prompt
 
 
+@wrap_model_call
+def _context_budget_call(request: ModelRequest, handler):
+    """Allocate the final model projection after dynamic prompt injection."""
+    from langchain_core.utils.function_calling import convert_to_openai_tool
+
+    from martin.llm.chat_model import BudgetedChatOpenAI
+    from martin.memory.interaction import current_interaction
+
+    scope = current_budget_scope()
+    policy = scope.policy if scope else get_policy()
+    interaction = current_interaction()
+    query = (
+        interaction.user_text
+        if interaction
+        else next(
+            (
+                str(message.content)
+                for message in reversed(request.messages)
+                if isinstance(message, HumanMessage)
+            ),
+            "",
+        )
+    )
+    context = _memory_context_var.get()
+    if context is not None and hasattr(context, "_scope"):
+        from martin.memory.router import MemoryRetrievalRouter
+        from martin.services.access_service import (
+            AccessDeniedError,
+            EntityNotFoundError,
+        )
+
+        authorized = context._scope
+        try:
+            context = MemoryRetrievalRouter(context._service).retrieve(
+                authorized.doctor_id,
+                authorized.thread_id,
+                query,
+            )
+        except (AccessDeniedError, EntityNotFoundError) as exc:
+            raise ContextBudgetExceeded("scope_denied") from exc
+        _memory_context_var.set(context)
+    instructions = SYSTEM_PROMPT
+    items = context.budget_items(query) if context is not None else []
+    if context is not None:
+        instructions += "\n" + context.instruction_prompt(query)
+    elif _memory_prompt_var.get():
+        # Compatibility callers supply an opaque string. Treat it as protected
+        # rather than guessing where the clinically important facts begin.
+        items.append(
+            BudgetItem(
+                "LEGACY MEMORY PROJECTION", "memory", _memory_prompt_var.get(), True
+            )
+        )
+    case = get_case_context()
+    if any(value is not None and value != "" for value in case.patient_info.values()):
+        items.append(
+            BudgetItem("当前病例上下文:患者信息", "memory", case.patient_info, True)
+        )
+    if not context or not context.snapshot.current_findings:
+        for index, nodule in enumerate(case.nodules):
+            items.append(
+                BudgetItem(f"当前病例上下文:结节{index + 1}", "memory", nodule, True)
+            )
+    if case.image_info.get("image_path") or case.image_info.get("filename"):
+        items.append(BudgetItem("当前病例上下文:影像信息", "memory", case.image_info))
+    if case.knowledge_summary:
+        items.append(
+            BudgetItem("当前病例上下文:知识摘要", "rag", case.knowledge_summary)
+        )
+    for index, note in enumerate(case.clinical_notes):
+        items.append(BudgetItem(f"当前病例上下文:备注{index}", "memory", note))
+
+    messages = list(request.messages)
+    calls = {
+        call["id"]: call["name"]
+        for message in messages
+        if isinstance(message, AIMessage)
+        for call in message.tool_calls
+    }
+    current_start = next(
+        (
+            i
+            for i in range(len(messages) - 1, -1, -1)
+            if isinstance(messages[i], HumanMessage)
+        ),
+        0,
+    )
+    # RAG fragments compete as complete documents; their sources are retained.
+    # Moving them to the system data section keeps the current tool pair intact.
+    for index in range(current_start, len(messages)):
+        message = messages[index]
+        if (
+            isinstance(message, ToolMessage)
+            and calls.get(message.tool_call_id) == "retrieve_knowledge"
+        ):
+            raw = str(message.content)
+            fragments = re.split(r"(?=【参考资料\d+】)", raw)
+            for number, fragment in enumerate(fragments):
+                if fragment.strip():
+                    items.append(
+                        BudgetItem(
+                            f"RAG:{message.tool_call_id}:{number}",
+                            "rag",
+                            fragment,
+                            source_ids=(message.tool_call_id,),
+                        )
+                    )
+            messages[index] = message.model_copy(
+                update={
+                    "content": (
+                        "本次检索资料按预算列入系统数据区；仅可引用实际入选的完整资料。"
+                        "如无入选资料，当前检索上下文不足，须说明不能提供完整依据。"
+                    )
+                }
+            )
+    base = SystemMessage(content=instructions)
+    current = messages[current_start:]
+    old_turns = {}
+    boundaries = [
+        i
+        for i, message in enumerate(messages[:current_start])
+        if isinstance(message, HumanMessage)
+    ]
+    for index in reversed(range(len(boundaries))):
+        left = boundaries[index]
+        right = boundaries[index + 1] if index + 1 < len(boundaries) else current_start
+        turn = messages[left:right]
+        reference = f"history:{getattr(turn[0], 'id', None) or left}"
+        old_turns[reference] = (left, turn)
+        items.append(
+            BudgetItem(
+                reference,
+                "history",
+                {
+                    "messages": [message_dict(message) for message in turn],
+                    "framing_reserve": " " * 64 * len(turn),
+                },
+            )
+        )
+    available = (
+        policy.input_token_limit
+        - estimate_messages([base, *current], request.tools)
+        - 512
+    )
+    selection = select_context(
+        items, available=max(0, available), task=task_kind(query), policy=policy
+    )
+    if scope is not None and context is not None:
+        scope.output_preferences = (
+            context.snapshot.doctor_preferences.get("report_style", {})
+            if any(
+                item.reference.startswith("DOCTOR PREFERENCES:")
+                for item in selection.selected_items
+            )
+            else {}
+        )
+    system = SystemMessage(
+        content=instructions + "\n" + selection.render_without("history")
+    )
+    selected_turns = sorted(
+        (
+            old_turns[reference]
+            for reference in selection.selected_ids
+            if reference in old_turns
+        ),
+        key=lambda item: item[0],
+    )
+    messages = [
+        message for _index, turn in selected_turns for message in turn
+    ] + current
+    messages = project_history(
+        messages, system_message=system, tools=request.tools, policy=policy
+    )
+    payload = {
+        "model": getattr(request.model, "model_name", "synthetic"),
+        "messages": [message_dict(m) for m in [system, *messages]],
+        "tools": [convert_to_openai_tool(tool) for tool in request.tools],
+        "max_tokens": min(
+            getattr(request.model, "max_tokens", None) or policy.reserved_output,
+            policy.reserved_output,
+        ),
+    }
+    payload.update(request.model_settings)
+    guard_payload(
+        payload, policy=policy, charge=not isinstance(request.model, BudgetedChatOpenAI)
+    )
+    with ExitStack() as stack:
+        check = None
+        if context is not None and hasattr(context, "_scope"):
+            from martin.memory.lifecycle import write_lock
+
+            stack.enter_context(write_lock)
+            check = lambda: validate_context_sources(
+                context, selection.selected_items, query
+            )
+        check_token = begin_dispatch_check(check) if check is not None else None
+        try:
+            verify_dispatch_sources()
+            return handler(request.override(system_message=system, messages=messages))
+        finally:
+            if check_token is not None:
+                finish_dispatch_check(check_token)
+
+
 # ─── Agent 执行器 ───────────────────────────────────────────
+
 
 class AgentExecutor:
     """基于 LangChain Agent API 的 Agent 执行器。
@@ -285,6 +509,7 @@ class AgentExecutor:
         self.thread_id = thread_id or "default"
         self.doctor_id = doctor_id
         self.memory_prompt = ""
+        self.memory_context = None
         self.report_preferences = {}
         self._thinking_logger = _get_thinking_logger()
 
@@ -304,7 +529,7 @@ class AgentExecutor:
             model=llm,
             tools=tools,
             state_schema=MartinState,
-            middleware=[_case_context_prompt],
+            middleware=[_case_context_prompt, _context_budget_call],
             checkpointer=memory,
         )
 
@@ -315,6 +540,30 @@ class AgentExecutor:
         )
 
     def invoke(self, inputs: Dict[str, Any]) -> Dict[str, Any]:
+        """Keep every nested model call and format repair in one request budget."""
+        human_input = inputs.get("human_input", inputs.get("input", ""))
+        token = begin_budget_scope(
+            task_kind(human_input if isinstance(human_input, str) else ""),
+            doctor_id=getattr(self, "doctor_id", None),
+            thread_id=self.thread_id,
+        )
+        try:
+            try:
+                result = self._invoke(inputs)
+            except ContextBudgetExceeded as exc:
+                # Covers post-graph processing, including format repair, so REST
+                # and WebSocket receive the same explicit public degradation.
+                result = {
+                    "output": str(exc),
+                    "intermediate_steps": [],
+                    "degraded": True,
+                }
+            result["budget_trace"] = current_budget_scope().trace()
+            return result
+        finally:
+            finish_budget_scope(token)
+
+    def _invoke(self, inputs: Dict[str, Any]) -> Dict[str, Any]:
         """执行一次 Agent 推理（自动保持会话记忆）。
 
         Args:
@@ -342,10 +591,16 @@ class AgentExecutor:
         token = set_case_context(self.case_context)
         memory_token = _memory_prompt_var.set(getattr(self, "memory_prompt", ""))
         actor_token = set_actor_id(getattr(self, "doctor_id", None))
-        report_token = set_report_scope(getattr(self, "doctor_id", None), self.thread_id)
-        interaction_token = set_interaction(MemoryInteraction(
-            interaction_id, human_input,
-        ))
+        report_token = set_report_scope(
+            getattr(self, "doctor_id", None), self.thread_id
+        )
+        interaction_token = set_interaction(
+            MemoryInteraction(
+                interaction_id,
+                human_input,
+            )
+        )
+        context_token = _memory_context_var.set(getattr(self, "memory_context", None))
         try:
             result = self._agent.invoke(
                 {
@@ -354,11 +609,20 @@ class AgentExecutor:
                 },
                 config=config,
             )
+        except ContextBudgetExceeded as e:
+            return {
+                "output": str(e),
+                "intermediate_steps": [],
+                "degraded": True,
+                "budget_trace": current_budget_scope().trace(),
+            }
         except Exception as e:
             logger.error("Agent 执行失败: %s", type(e).__name__)
+            trace = current_budget_scope().trace()
             return {
                 "output": f"错误: Agent 执行失败: {e}",
                 "intermediate_steps": [],
+                "budget_trace": trace,
             }
         finally:
             reset_interaction(interaction_token)
@@ -366,6 +630,9 @@ class AgentExecutor:
             reset_actor_id(actor_token)
             _memory_prompt_var.reset(memory_token)
             reset_case_context(token)
+            _memory_context_var.reset(context_token)
+
+        # Keep the same budget active through the optional format repair.
 
         # 工具修改的是当前运行对象；Graph 中的输入快照不能反向覆盖它。
         # 所有工具结束后，由 save_case_context 统一写入持久化快照。
@@ -373,9 +640,15 @@ class AgentExecutor:
         all_messages = result.get("messages", [])
         parsed_result = self._parse_result(all_messages)
         initial_output = parsed_result["output"]
-        preferences = OutputPreferences.from_dict(
-            getattr(self, "report_preferences", {})
-        ).for_task(user_input)
+        scope = current_budget_scope()
+        effective_preferences = (
+            scope.output_preferences
+            if scope is not None and scope.output_preferences is not None
+            else getattr(self, "report_preferences", {})
+        )
+        preferences = OutputPreferences.from_dict(effective_preferences).for_task(
+            user_input
+        )
         steps = parsed_result.get("intermediate_steps", [])
         durable_write_failed = any(
             action.tool == "save_long_term_memory" and str(output).startswith("错误:")
@@ -389,9 +662,9 @@ class AgentExecutor:
         write_failed = False
         for action, output in steps:
             if action.tool == "save_report_preference":
-                preferences = OutputPreferences.from_dict(
-                    action.tool_input
-                ).for_task(user_input)
+                preferences = OutputPreferences.from_dict(action.tool_input).for_task(
+                    user_input
+                )
                 if str(output).startswith("错误:"):
                     write_failed = True
             if action.tool == "retract_long_term_memory" and not str(output).startswith(
@@ -408,14 +681,16 @@ class AgentExecutor:
                     # A completed withdrawal must not re-enable cached formatting rules.
                     preferences = OutputPreferences()
         report_requested = any(action.tool == "generate_report" for action, _ in steps)
-        report_requested = report_requested or bool(re.search(
-            r"(?:生成|出|写|整理|提供).{0,6}报告", user_input
-        ))
+        report_requested = report_requested or bool(
+            re.search(r"(?:生成|出|写|整理|提供).{0,6}报告", user_input)
+        )
         if durable_write_failed:
             parsed_result["memory_write_failed"] = True
             failure = "长期记忆保存失败，本次内容未确认写入；后续会话可能无法恢复。"
             parsed_result["output"] = (
-                parsed_result["output"] + "\n" + failure if report_requested else failure
+                parsed_result["output"] + "\n" + failure
+                if report_requested
+                else failure
             )
         if write_failed:
             parsed_result["memory_write_failed"] = True
@@ -435,48 +710,68 @@ class AgentExecutor:
             try:
                 parsed_result["output"], parsed_result["preference_validation"] = (
                     enforce_preferences(
-                        parsed_result["output"], preferences,
-                        lambda messages: get_chat_model().invoke(messages),
+                        parsed_result["output"],
+                        preferences,
+                        lambda messages: invoke_guarded(
+                            get_chat_model(), messages, revalidate_last_sources=True
+                        ),
                         persistence_failed=write_failed,
                         memory_persistence_failed=durable_write_failed,
                         focus_context=self._focus_context(),
                     )
                 )
-            except PreferenceValidationError:
+            except PreferenceValidationError as exc:
                 # A failed repair must not leave an unapproved final in history.
-                self._replace_final_answer(
-                    all_messages, "报告格式校验未通过，暂未提供正式报告，请重试。"
-                )
-                self.save_case_context()
-                raise
+                if isinstance(exc.__cause__, ContextBudgetExceeded):
+                    parsed_result["output"] = str(exc.__cause__)
+                    parsed_result["degraded"] = True
+                else:
+                    self._replace_final_answer(
+                        all_messages, "报告格式校验未通过，暂未提供正式报告，请重试。"
+                    )
+                    self.save_case_context()
+                    raise
+            except ContextBudgetExceeded as exc:
+                parsed_result["output"] = str(exc)
+                parsed_result["degraded"] = True
         if parsed_result["output"] != initial_output:
             self._replace_final_answer(all_messages, parsed_result["output"])
 
         # 根据工具执行结果同步病例上下文
-        self._sync_case_context_from_steps(
-            parsed_result.get("intermediate_steps", [])
-        )
+        self._sync_case_context_from_steps(parsed_result.get("intermediate_steps", []))
 
         self.save_case_context()
-
         return parsed_result
 
     def _replace_final_answer(self, messages: list, answer: str) -> None:
         """Persist the exact public answer using the original message identity."""
-        start = next((
-            i + 1 for i in range(len(messages) - 1, -1, -1)
-            if isinstance(messages[i], HumanMessage)
-        ), 0)
-        last_answer = next((
-            msg for msg in reversed(messages[start:])
-            if isinstance(msg, AIMessage) and not msg.tool_calls
-        ), None)
+        start = next(
+            (
+                i + 1
+                for i in range(len(messages) - 1, -1, -1)
+                if isinstance(messages[i], HumanMessage)
+            ),
+            0,
+        )
+        last_answer = next(
+            (
+                msg
+                for msg in reversed(messages[start:])
+                if isinstance(msg, AIMessage) and not msg.tool_calls
+            ),
+            None,
+        )
         try:
             self._agent.update_state(
                 {"configurable": {"thread_id": self.thread_id}},
-                {"messages": [AIMessage(
-                    content=answer, id=last_answer.id if last_answer else None,
-                )]},
+                {
+                    "messages": [
+                        AIMessage(
+                            content=answer,
+                            id=last_answer.id if last_answer else None,
+                        )
+                    ]
+                },
             )
         except Exception as exc:
             raise CasePersistenceError("病例保存失败，请重试。") from exc
@@ -484,7 +779,8 @@ class AgentExecutor:
     def _focus_context(self) -> str:
         """Only literal current-case descriptions, never historical observations."""
         lines = [
-            note.strip() for note in self.case_context.clinical_notes
+            note.strip()
+            for note in self.case_context.clinical_notes
             if isinstance(note, str) and "毛刺" in note
         ]
         for nodule in self.case_context.nodules[:5]:
@@ -538,14 +834,18 @@ class AgentExecutor:
         intermediate_steps: List[Tuple[AgentAction, str]] = []
         final_output = ""
         start = next(
-            (i + 1 for i in range(len(messages) - 1, -1, -1)
-             if isinstance(messages[i], HumanMessage)),
+            (
+                i + 1
+                for i in range(len(messages) - 1, -1, -1)
+                if isinstance(messages[i], HumanMessage)
+            ),
             0,
         )
         current_messages = messages[start:]
         outputs = {
             msg.tool_call_id: msg.content
-            for msg in current_messages if isinstance(msg, ToolMessage)
+            for msg in current_messages
+            if isinstance(msg, ToolMessage)
         }
         seen = set()
 
@@ -581,6 +881,7 @@ class AgentExecutor:
 
 
 # ─── Martin Agent 工厂函数 ────────────────────────────────────
+
 
 def create_agent(
     tools: Optional[List[BaseTool]] = None,

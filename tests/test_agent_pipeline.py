@@ -17,7 +17,9 @@ class TestAgentInitialization:
         """Agent 应使用 LangChain 官方工厂，并通过 middleware 注入病例上下文。"""
         from langgraph.checkpoint.memory import MemorySaver
 
-        from martin.agent.agent import AgentExecutor, MartinState, _case_context_prompt
+        from martin.agent.agent import (
+            AgentExecutor, MartinState, _case_context_prompt, _context_budget_call,
+        )
 
         mock_get_chat_model.return_value = MagicMock()
         mock_create_langchain_agent.return_value = MagicMock()
@@ -31,7 +33,7 @@ class TestAgentInitialization:
 
         _, kwargs = mock_create_langchain_agent.call_args
         assert kwargs["state_schema"] is MartinState
-        assert kwargs["middleware"] == [_case_context_prompt]
+        assert kwargs["middleware"] == [_case_context_prompt, _context_budget_call]
         assert kwargs["checkpointer"] is not None
 
     @patch("martin.agent.agent.create_langchain_agent")
@@ -172,8 +174,11 @@ class TestCLIIntegration:
             [sys.executable, "-m", "martin", "agent", "--help"],
             capture_output=True,
             text=True,
+            encoding="utf-8",
+            env={**os.environ, "PYTHONIOENCODING": "utf-8"},
             cwd=os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
         )
+        assert result.returncode == 0, result.stderr
         assert "usage:" in result.stdout.lower()
         assert "--image" in result.stdout
         assert "--report-type" in result.stdout

@@ -102,3 +102,16 @@ LOCAL_NOTES.md
 /tmp/pytest-v22-*/
 /tmp/v22-*.py
 /tmp/v22-*.jpg
+
+# 本机个人材料与运行时产物（不入库）
+/output/
+/minio.exe
+/tmp/
+/data/*.pdf
+/martin_evidence_index.json
+/martin_harness_interview_summary.md
+/martin_knowledge_draft.md
+/scripts/build_ai_agent_biomed_resume.py
+/docs/IMAGE_PIPELINE_BEGINNER_TUTORIAL.md
+/docs/TEST_LEARNING_2_DAYS.md
+/docs/TEST_LEARNING_2_DAYS_BEGINNER.md

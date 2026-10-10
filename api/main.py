@@ -41,7 +41,7 @@ app.add_middleware(
     CORSMiddleware,
     allow_origins=allowed_origins,
     allow_credentials=True,
-    allow_methods=["GET", "POST"],
+    allow_methods=["GET", "POST", "PUT"],
     allow_headers=["Content-Type"],
 )
 
@@ -51,7 +51,7 @@ def health_check():
     return {"status": "ok", "service": "Martin Medical AI Agent"}
 
 
-from api.routers import agent, auth, cases, image, knowledge, memory, patients, report, sessions, threads
+from api.routers import agent, auth, budget, cases, image, knowledge, memory, patients, report, sessions, threads
 
 app.include_router(agent.router, prefix="/api")
 app.include_router(auth.router, prefix="/api")
@@ -59,6 +59,7 @@ app.include_router(threads.router, prefix="/api")
 app.include_router(patients.router, prefix="/api")
 app.include_router(cases.router, prefix="/api")
 app.include_router(memory.router, prefix="/api")
+app.include_router(budget.router, prefix="/api")
 app.include_router(image.router, prefix="/api")
 app.include_router(knowledge.router, prefix="/api/knowledge", tags=["knowledge"])
 app.include_router(report.router, prefix="/api")

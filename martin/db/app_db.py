@@ -39,6 +39,9 @@ def init_schema(path: str | Path | None = None) -> None:
     try:
         connection.executescript(SCHEMA_PATH.read_text(encoding="utf-8"))
         migrations = {
+            "users": {
+                "budget_admin": "INTEGER NOT NULL DEFAULT 0 CHECK (budget_admin IN (0, 1))",
+            },
             "cases": {
                 "age_at_encounter_years": "INTEGER CHECK (age_at_encounter_years IS NULL OR age_at_encounter_years BETWEEN 0 AND 130)",
                 "age_recorded_at": "TEXT",
@@ -64,10 +67,18 @@ def init_schema(path: str | Path | None = None) -> None:
 
 @contextmanager
 def transaction(path: str | Path | None = None) -> Iterator[sqlite3.Connection]:
-    """Commit a unit of work, or roll it back on failure, then close it."""
-    connection = connect(path)
-    try:
-        with connection:
-            yield connection
-    finally:
-        connection.close()
+    """Keep local fact/permission commits outside a guarded model dispatch.
+
+    The shared reentrant lock also lets the dispatch validator read the same
+    database while holding it. This is a process-local coordination boundary;
+    it does not claim serialization across multiple server workers.
+    """
+    from martin.memory.lifecycle import write_lock
+
+    with write_lock:
+        connection = connect(path)
+        try:
+            with connection:
+                yield connection
+        finally:
+            connection.close()

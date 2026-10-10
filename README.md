@@ -36,7 +36,15 @@ Martin 是面向**呼吸科 / 胸外科 / 影像科医生**的 AI 医学影像�
 - 未核实临床声明及 Finding 纠正单独标注，展示与确认业务事实的冲突，不自动修改业务事实。
 - Exact、Temporal、Semantic 和旧版记忆路径执行授权、来源、状态与时效检查；旧向量不能恢复已撤回条目。
 - 在病例工作台右侧点击“长期记忆”，查看来源、修订或撤回条目，设置报告篇幅及复杂病例条件偏好。
-- 验收范围与限制见 [V2.1 验收报告](docs/refactor/MARTIN_MEMORY_V21_ACCEPTANCE.md)；V2.2 摘要/预算及 V2.3 并发/指标尚未实施。
+- 验收范围与限制见 [V2.1 验收报告](docs/refactor/MARTIN_MEMORY_V21_ACCEPTANCE.md)。
+
+**记忆增长与上下文治理（V2.2）**
+
+- 低风险等价偏好合并并保留各次来源；不同日期、病灶、理由或条件的临床记录保守独立保存。
+- 每轮授权的极简背景，历史任务按需注入有源指针的抽取摘要；持久化后台队列与周期治理，撤回来源立即阻断旧摘要。
+- Agent、报告及格式修复使用统一输入硬限、任务软配额、输出预留和使用 trace；关键证据超预算时分阶段处理或明确告知未完成。
+- 默认关闭的 `budget_admin` 能力通过 `scripts/manage_budget_admin.py` 显式授予/撤销；工作台“长期记忆 → 上下文预算与使用记录”提供版本保存、审计和回退。普通医生只能查看自己的会话 trace。
+- 源码、验收数据、参数和运维入口见 [V2.2 验收报告](docs/refactor/MARTIN_MEMORY_V22_ACCEPTANCE.md)。当前为单 worker 合成数据验收；V2.3 多进程与生产负载仍待验证。
 
 **工作站**
 
@@ -135,6 +143,7 @@ python -m pytest -q --basetemp=./.pytest_tmp   # basetemp 规避部分 Windows �
 
 - 全量基线：**280 passed / 1 skipped / 0 failed**（2026-09-30）
 - V2.1 相关回归：**340 passed / 0 failed**（2026-10-09，非完整 CT/知识库测试集）；八类真实模型验收及 UI 操作通过，见对应验收报告
+- V2.2 全量回归：**572 passed / 15 skipped / 0 failed**（2026-10-10）；后续修复分组回归分别 79、114 passed，不能与全量相加；真实模型与前端结果见 [验收报告](docs/refactor/MARTIN_MEMORY_V22_ACCEPTANCE.md)
 - 真实 LLM 验收脚本：`validation_scripts/`（独立端口 8001 + 隔离三库，不触碰正式数据），用法见该目录 README
 - 各阶段验收记录：`docs/refactor/`
 
@@ -151,6 +160,10 @@ python -m pytest -q --basetemp=./.pytest_tmp   # basetemp 规避部分 Windows �
 | [docs/plans/REFACTOR_PROGRESS.md](docs/plans/REFACTOR_PROGRESS.md) | 批次执行日志 + 最新交班状态块 |
 | [docs/plans/AGENT_HANDOFF_PROTOCOL.md](docs/plans/AGENT_HANDOFF_PROTOCOL.md) | 多 agent 交替开发的双向交接规则 |
 | [docs/plans/MARTIN_ENTITY_V0_EXECUTION_PLAN.md](docs/plans/MARTIN_ENTITY_V0_EXECUTION_PLAN.md) | Entity V0 执行计划（决策 / DDL / 分批 / 验收门槛） |
+| [docs/plans/MARTIN_LONG_TERM_MEMORY_V2_TRUSTED_GOVERNANCE.md](docs/plans/MARTIN_LONG_TERM_MEMORY_V2_TRUSTED_GOVERNANCE.md) | V2 原始可信治理设计输入（归档；阶段结果以验收报告为准） |
+| [docs/plans/MARTIN_MEMORY_V2_IMPLEMENTATION_PLAN.md](docs/plans/MARTIN_MEMORY_V2_IMPLEMENTATION_PLAN.md) | V2 分批实施与 V2.3 后续边界 |
+| [docs/plans/MARTIN_MEMORY_V22_EXECUTION_PLAN.md](docs/plans/MARTIN_MEMORY_V22_EXECUTION_PLAN.md) | V2.2 八项已确认决策、P0/P1 验收要求 |
+| [docs/plans/MARTIN_MEMORY_V2_DEVELOPMENT_HANDOFF.md](docs/plans/MARTIN_MEMORY_V2_DEVELOPMENT_HANDOFF.md) | 当前开发分支、换电脑接续步骤、验收与待办 |
 | [docs/refactor/](docs/refactor/) | 各阶段验收记录（Entity V0、SqliteStore V1、live 三场景）与 ADR |
 | [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) / [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md) | 架构设计与开发记录（历史） |
 | `LOCAL_NOTES.md`（不入库） | 本机环境事实；换机器不存在属正常，按需自建 |
@@ -167,7 +180,8 @@ python -m pytest -q --basetemp=./.pytest_tmp   # basetemp 规避部分 Windows �
 | ✅ | 报告模板接业务 Finding 回填（V1.1；报告结构完整性限制见阶段记录） |
 | 🔲 | MONAI 权重机器上的 UI 全链路实测 |
 | ✅ | V2.1 可信记忆治理（限定范围验收） |
-| 🔲 | V2.2 记忆增长、摘要与预算；V2.3 质量指标与并发 |
+| ✅ | V2.2 风险分级去重、有源摘要、统一预算与管理 UI（限定范围见验收报告） |
+| 🔲 | V2.3 生产质量指标、负载与多进程并发 |
 
 ---
 

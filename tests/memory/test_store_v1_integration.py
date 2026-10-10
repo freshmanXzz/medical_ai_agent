@@ -1,5 +1,6 @@
 """Cross-thread Store-to-Prompt-to-answer and failure-path integration."""
 
+import json
 import logging
 
 from langchain_core.language_models.chat_models import BaseChatModel
@@ -91,6 +92,15 @@ def _receive_final(ws):
     raise AssertionError("WebSocket did not deliver a final answer")
 
 
+def _projected_records(prompt, section):
+    lines = prompt.splitlines()
+    return [
+        json.loads(lines[index + 1])
+        for index, line in enumerate(lines)
+        if line.startswith(f"[memory:{section}:")
+    ]
+
+
 def _use_model_and_saver(monkeypatch, saver, model, tmp_path):
     from martin.agent.audit import AuditLogger
 
@@ -172,16 +182,21 @@ def test_demo_b_historical_store_and_current_case_are_separate(
         assert "8mm" in response.json()["output"]
         assert "2mm" in response.json()["output"]
         prompt = model._prompts[-1]
-        current_section = prompt.split("[CURRENT CASE FACTS]", 1)[1].split(
-            "[DOCTOR PREFERENCES]", 1
-        )[0]
-        historical_section = prompt.split("[PATIENT HISTORICAL MEMORY]", 1)[1].split(
-            "[CASE MEMORY]", 1
-        )[0]
-        assert '"finding_id": "F002"' in current_section
-        assert '"finding_id": "F001"' not in current_section
-        assert '"finding_id": "F001"' in historical_section
-        assert '"finding_id": "F002"' not in historical_section
+        current = _projected_records(prompt, "CURRENT CASE FACTS")
+        historical = _projected_records(prompt, "PATIENT HISTORICAL MEMORY")
+        assert [
+            (item["finding_id"], item["source_case_id"], item["diameter_mm"])
+            for item in current
+        ] == [("F002", "C002", 8.0)]
+        assert [
+            (item["finding_id"], item["source_case_id"], item["diameter_mm"])
+            for item in historical
+        ] == [("F001", "C001", 6.0)]
+        assert current[0]["observed_at"] == "2026-09-01T00:00:00+00:00"
+        assert historical[0]["observed_at"] == "2026-06-01T00:00:00+00:00"
+        assert all(item["status"] == "confirmed" for item in current + historical)
+        assert "当前医疗事实以业务数据库为准" in prompt
+        assert "以 CURRENT CASE FACTS 为准" in prompt
         assert get_default_store().get(patient_memory_ns("P001"), "observation:F001")
 
 
@@ -325,12 +340,23 @@ def test_longitudinal_question_does_not_invent_history_when_store_down(
         assert response.status_code == 200
         assert len(model._prompts) == 2
         prompt = model._prompts[-1]
-        assert "[MEMORY STATUS]" in prompt
+        status, _ = json.JSONDecoder().raw_decode(
+            prompt.split("[RETRIEVER STATUS]\n", 1)[1]
+        )
+        assert status["exact"] == "store_unavailable"
+        assert status["temporal"] == "unavailable"
         assert "store_unavailable" in prompt
         assert "不得推断或编造既往测量值" in prompt
         assert "不得声称无变化" in prompt
-        assert '"finding_id": "F002"' in prompt
+        current = _projected_records(prompt, "CURRENT CASE FACTS")
+        assert [
+            (item["finding_id"], item["source_case_id"], item["diameter_mm"])
+            for item in current
+        ] == [("F002", "C002", 8.0)]
+        assert current[0]["status"] == "confirmed"
+        assert _projected_records(prompt, "PATIENT HISTORICAL MEMORY") == []
         assert '"finding_id": "F001"' not in prompt
+        assert "当前医疗事实以业务数据库为准" in prompt
         answer = response.json()["output"]
         assert "历史记忆不可用" in answer
         assert "无法可靠比较" in answer

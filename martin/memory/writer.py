@@ -30,6 +30,7 @@ class MemoryWriteResult:
     index_available: bool = True
     error_code: str | None = None
     decisions: list[dict] = field(default_factory=list)
+    governance_job: dict | None = None
 
 
 class MemoryWriter:
@@ -276,13 +277,21 @@ class MemoryWriter:
                     (
                         item
                         for item in active
+                        if (
+                            _revision_target_id is None
+                            or item["memory_id"] == _revision_target_id
+                        )
                         if self._same_content(item, record, candidate)
                     ),
                     None,
                 )
-                if duplicate and candidate.memory_type in HIGH_RISK_TYPES and (
-                    candidate.observed_at is None
-                    and duplicate.get("provenance") != record["provenance"]
+                if (
+                    duplicate
+                    and candidate.memory_type in HIGH_RISK_TYPES
+                    and (
+                        candidate.observed_at is None
+                        and duplicate.get("provenance") != record["provenance"]
+                    )
                 ):
                     # Equal words at an unspecified later time are not necessarily
                     # the same clinical event. Only a source retry is idempotent.
@@ -290,28 +299,52 @@ class MemoryWriter:
                 duplicate_reason = "exact_duplicate"
                 if duplicate is None and _revision_target_id is None:
                     duplicate = next(
-                        (item for item in history if is_record_active(item)
-                         and low_risk_equivalent(item, record, candidate)),
+                        (
+                            item
+                            for item in history
+                            if is_record_active(item)
+                            and low_risk_equivalent(item, record, candidate)
+                        ),
                         None,
                     )
                     duplicate_reason = "low_risk_equivalent"
                 if duplicate:
                     strengthened = reinforce(duplicate, record, reason=duplicate_reason)
                     if strengthened is not duplicate:
-                        namespace = (doctor_records_ns(scope.doctor_id)
-                                     if duplicate.get("patient_id") is None
-                                     else records_ns(scope.doctor_id, scope.patient_id))
+                        namespace = (
+                            doctor_records_ns(scope.doctor_id)
+                            if duplicate.get("patient_id") is None
+                            else records_ns(scope.doctor_id, scope.patient_id)
+                        )
                         if not self.service.validate_record_source(scope, strengthened):
-                            raise ValueError("Reinforced source is outside the authorized scope")
-                        operations.append(PutOp(namespace=namespace,
-                                                key=duplicate["memory_id"], value=strengthened))
+                            raise ValueError(
+                                "Reinforced source is outside the authorized scope"
+                            )
+                        operations.append(
+                            PutOp(
+                                namespace=namespace,
+                                key=duplicate["memory_id"],
+                                value=strengthened,
+                            )
+                        )
                         history[history.index(duplicate)] = strengthened
-                        saved = [strengthened if item["memory_id"] == duplicate["memory_id"]
-                                 else item for item in saved]
+                        saved = [
+                            (
+                                strengthened
+                                if item["memory_id"] == duplicate["memory_id"]
+                                else item
+                            )
+                            for item in saved
+                        ]
                     saved.append(strengthened)
                     deduplicated += 1
-                    decisions.append({"memory_id": strengthened["memory_id"],
-                                      "reason": duplicate_reason, "merged": True})
+                    decisions.append(
+                        {
+                            "memory_id": strengthened["memory_id"],
+                            "reason": duplicate_reason,
+                            "merged": True,
+                        }
+                    )
                     continue
                 namespace = (
                     doctor_records_ns(scope.doctor_id)
@@ -319,13 +352,23 @@ class MemoryWriter:
                     else records_ns(scope.doctor_id, scope.patient_id)
                 )
                 replacing = (
-                    [item for item in active if item["memory_id"] == _revision_target_id]
-                    if _revision_target_id is not None else
-                    active if candidate.memory_type == "task_followup" else []
+                    [
+                        item
+                        for item in history
+                        if item["memory_id"] == _revision_target_id
+                        and is_record_active(item)
+                    ]
+                    if _revision_target_id is not None
+                    else active if candidate.memory_type == "task_followup" else []
                 )
                 record["revision"] = (
-                    max((item.get("revision", 1) for item in same_key), default=0) + 1
-                    if replacing or candidate.memory_type == "task_followup" else 1
+                    max(
+                        (item.get("revision", 1) for item in [*same_key, *replacing]),
+                        default=0,
+                    )
+                    + 1
+                    if replacing or candidate.memory_type == "task_followup"
+                    else 1
                 )
                 for previous in replacing:
                     event = lifecycle_event(
@@ -360,13 +403,42 @@ class MemoryWriter:
                 )
                 history.append(record)
                 saved.append(record)
-                decisions.append({"memory_id": record["memory_id"], "merged": False,
-                                  "reason": "explicit_revision" if replacing else
-                                  "high_risk_independent" if candidate.memory_type in HIGH_RISK_TYPES
-                                  else "new_or_refined_preference"})
+                decisions.append(
+                    {
+                        "memory_id": record["memory_id"],
+                        "merged": False,
+                        "reason": (
+                            "explicit_revision"
+                            if replacing
+                            else (
+                                "high_risk_independent"
+                                if candidate.memory_type in HIGH_RISK_TYPES
+                                else "new_or_refined_preference"
+                            )
+                        ),
+                    }
+                )
             revalidate_scope(scope, db_path=self.service.db_path, write=True)
             if operations:
+                from .summaries import invalidate_summary_operations
+
+                changed = [operation.key for operation in operations if operation.value]
+                operations.extend(
+                    invalidate_summary_operations(self.service, scope, changed)
+                )
                 atomic_batch(self.service._store(), operations)
+        governance_job = None
+        try:
+            from .governance_jobs import enqueue_from_policy
+
+            governance_job = enqueue_from_policy(self.service, scope)
+        except Exception:
+            # The original record is already committed. Queue failure must not
+            # masquerade as failure to save that evidence or block ordinary chat.
+            governance_job = {
+                "queued": False,
+                "error_code": "summary_queue_unavailable",
+            }
         if any(
             item["memory_type"] in ("clinical_decision", "historical_discussion")
             for item in saved
@@ -374,6 +446,7 @@ class MemoryWriter:
             try:
                 if self.vector_index is None:
                     from .vector_index import get_default_vector_index
+
                     self.vector_index = get_default_vector_index()
                 connection = getattr(self.service._store(), "conn", None)
                 reserved = [self.service.db_path] if self.service.db_path else []
@@ -395,6 +468,13 @@ class MemoryWriter:
                 )
             except Exception:
                 return MemoryWriteResult(
-                    saved, deduplicated, False, "semantic_index_unavailable", decisions
+                    saved,
+                    deduplicated,
+                    False,
+                    "semantic_index_unavailable",
+                    decisions,
+                    governance_job,
                 )
-        return MemoryWriteResult(saved, deduplicated, decisions=decisions)
+        return MemoryWriteResult(
+            saved, deduplicated, decisions=decisions, governance_job=governance_job
+        )

@@ -7,6 +7,7 @@ from pydantic import BaseModel
 
 from api.deps.auth import COOKIE_NAME, get_current_doctor
 from martin.auth.session_service import DoctorIdentity, SESSION_HOURS, SessionService
+from martin.auth.capabilities import is_budget_admin
 
 
 router = APIRouter(prefix="/auth", tags=["Auth"])
@@ -17,11 +18,12 @@ class LoginRequest(BaseModel):
     password: str
 
 
-def _public_doctor(doctor: DoctorIdentity) -> dict[str, str]:
+def _public_doctor(doctor: DoctorIdentity) -> dict:
     return {
         "id": doctor.id,
         "username": doctor.username,
         "display_name": doctor.display_name,
+        "capabilities": {"budget_admin": is_budget_admin(doctor.id)},
     }
 
 

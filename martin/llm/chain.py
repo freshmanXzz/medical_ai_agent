@@ -17,15 +17,31 @@
 import json
 import logging
 import math
+import re
+from contextlib import ExitStack
 from numbers import Real
 from typing import Any, Dict, Optional
 
 from langchain_core.output_parsers import StrOutputParser
 from langchain_core.prompts import ChatPromptTemplate
-from langchain_core.runnables import RunnablePassthrough
+from langchain_core.runnables import RunnableLambda, RunnablePassthrough
 
-from martin.llm.chat_model import get_chat_model
 from martin.config import config
+from martin.llm.chat_model import get_chat_model
+from martin.llm.context_budget import (
+    BudgetItem,
+    ContextBudgetExceeded,
+    begin_dispatch_check,
+    conservative_count,
+    current_budget_scope,
+    estimate_messages,
+    finish_dispatch_check,
+    get_policy,
+    invoke_guarded,
+    select_context,
+    validate_context_sources,
+    verify_dispatch_sources,
+)
 from martin.rag.retriever import format_results, search_by_detection
 
 logger = logging.getLogger(__name__)
@@ -83,11 +99,12 @@ _REPORT_TYPE_MAP = {
 
 # ─── 用户提示词模板 ──────────────────────────────────────────
 
-diagnosis_prompt = ChatPromptTemplate.from_messages([
-    ("system", "{system_prompt}"),
-    (
-        "human",
-        """【患者信息】
+diagnosis_prompt = ChatPromptTemplate.from_messages(
+    [
+        ("system", "{system_prompt}"),
+        (
+            "human",
+            """【患者信息】
 {patient_info}
 
 【检查信息】
@@ -104,8 +121,9 @@ diagnosis_prompt = ChatPromptTemplate.from_messages([
 - 报告类型: {report_type}
 - 语言: 中文
 - 请基于以上信息生成病例报告。""",
-    ),
-])
+        ),
+    ]
+)
 
 
 def _build_patient_info(case_context: Optional[Any]) -> str:
@@ -230,7 +248,9 @@ def _build_nodules_detail(detection_result: Dict, report_type: str) -> str:
 
 def _is_measurement(value: Any) -> bool:
     """Missing measurements are not zeros or estimated detector confidence."""
-    return isinstance(value, Real) and not isinstance(value, bool) and math.isfinite(value)
+    return (
+        isinstance(value, Real) and not isinstance(value, bool) and math.isfinite(value)
+    )
 
 
 def _format_measurement(value: Any, spec: str = ".2f") -> str:
@@ -361,7 +381,7 @@ def _build_knowledge_context(detection_result: Dict, top_k: int) -> str:
             logger.info("知识库检索无相关结果")
             return "暂无相关知识库资料。"
     except Exception as e:
-        logger.warning("知识库检索失败: %s", e)
+        logger.warning("知识库检索失败: %s", type(e).__name__)
         return "暂无相关知识库资料。"
 
 
@@ -486,13 +506,9 @@ def _build_template_detailed(
         nodule_text = _format_nodules_detailed(nodules)
 
         # 生成诊断结论
-        high_risk = sum(
-            1 for n in nodules if n["diameter"] >= 8 or n["score"] > 0.95
-        )
+        high_risk = sum(1 for n in nodules if n["diameter"] >= 8 or n["score"] > 0.95)
         medium_risk = sum(
-            1
-            for n in nodules
-            if 6 <= n["diameter"] < 8 or 0.8 <= n["score"] <= 0.95
+            1 for n in nodules if 6 <= n["diameter"] < 8 or 0.8 <= n["score"] <= 0.95
         )
         low_risk = len(nodules) - high_risk - medium_risk
 
@@ -508,8 +524,7 @@ def _build_template_detailed(
         if low_risk > 0:
             impression_parts.append(f"发现 {low_risk} 个低风险结节")
         impression = (
-            "; ".join(impression_parts)
-            + "。建议结合临床症状和病史进行综合评估。"
+            "; ".join(impression_parts) + "。建议结合临床症状和病史进行综合评估。"
         )
 
         # 生成随访建议
@@ -580,7 +595,9 @@ def _build_template_research(
         nodule_text = _format_nodules_research(nodules)
 
         # 仅统计实际提供的测量，不把缺失数据当零纳入平均值。
-        diameters = [n["diameter"] for n in nodules if _is_measurement(n.get("diameter"))]
+        diameters = [
+            n["diameter"] for n in nodules if _is_measurement(n.get("diameter"))
+        ]
         scores = [n["score"] for n in nodules if _is_measurement(n.get("score"))]
         avg_diameter = sum(diameters) / len(diameters) if diameters else None
         avg_score = sum(scores) / len(scores) if scores else None
@@ -599,9 +616,7 @@ def _build_template_research(
             data_quality = (
                 "高" if avg_score > 0.9 else "中" if avg_score > 0.7 else "低"
             )
-        research_suggestion = (
-            "建议进一步研究" if total_nodules > 0 else "未检测到异常"
-        )
+        research_suggestion = "建议进一步研究" if total_nodules > 0 else "未检测到异常"
     else:
         data_quality = "无"
         research_suggestion = "未检测到异常"
@@ -688,6 +703,144 @@ def _get_system_prompt(
 # ─── LCEL 链构建 ─────────────────────────────────────────────
 
 
+def _invoke_report_with_budget(parts: Dict, model):
+    """Protect all report facts and sources before allocating flexible material."""
+    scope = current_budget_scope()
+    policy = scope.policy if scope else get_policy()
+    parts = dict(parts)
+    result = parts.get("detection_result") or {}
+    nodules = result.get("nodules", [])
+    # The human-readable formatter is a presentation projection. Preserve every
+    # exact Finding/detector value and source pointer independently of that view.
+    source_index = json.dumps(nodules, ensure_ascii=False, sort_keys=True)
+    parts["nodules_detail"] += "\n[CURRENT FINDING SOURCE INDEX]\n" + source_index
+    knowledge = parts.get("knowledge_context", "")
+    parts["knowledge_context"] = "暂无入选知识库资料，不能据此提供完整指南依据。"
+    fixed = diagnosis_prompt.invoke(parts).to_messages()
+    available = policy.input_token_limit - estimate_messages(fixed) - 512
+    if available < 0:
+        # Safe extraction batches contain the exact typed input and its optional
+        # duplicate display text. No clinical scalar is inferred or discarded.
+        items = []
+        for index, nodule in enumerate(nodules):
+            display = _build_nodules_detail(
+                {"nodules": [nodule], "total_nodules": 1}, parts["report_type"]
+            )
+            items.append(
+                BudgetItem(
+                    f"finding:{nodule.get('finding_id', index)}",
+                    "memory",
+                    dict(nodule, display_text=display),
+                    True,
+                    tuple(
+                        str(nodule[key])
+                        for key in ("finding_id", "source_case_id")
+                        if nodule.get(key)
+                    ),
+                    str(nodule.get("observed_at", "")),
+                    dict(nodule),
+                )
+            )
+        parts["nodules_detail"] = ""
+        # Observation dates are retained per source in typed evidence; repeating
+        # the complete date index is unnecessary during staged processing.
+        parts["examination_info"] = "检查资料保持原输入状态；观察日期见每项结构化证据。"
+        available = (
+            policy.input_token_limit
+            - estimate_messages(diagnosis_prompt.invoke(parts).to_messages())
+            - 512
+        )
+        selected = select_context(
+            items,
+            available=max(0, available),
+            task="report",
+            policy=policy,
+            force_stage=True,
+        )
+        parts["nodules_detail"] = selected.text
+        fixed = diagnosis_prompt.invoke(parts).to_messages()
+        available = policy.input_token_limit - estimate_messages(fixed) - 512
+    items = []
+    empty_knowledge = knowledge.strip() in {
+        "",
+        "暂无相关知识库资料。",
+        "暂无资料",
+    }
+    for index, fragment in enumerate(re.split(r"(?=【参考资料\d+】)", knowledge)):
+        if not empty_knowledge and fragment.strip():
+            items.append(BudgetItem(f"REPORT RAG:{index}", "rag", fragment))
+    memory_context = None
+    from martin.agent.report_scope import current_report_scope
+
+    actor = current_report_scope()
+    if actor is not None:
+        from martin.memory.router import MemoryRetrievalRouter
+        from martin.services.access_service import (
+            AccessDeniedError,
+            EntityNotFoundError,
+        )
+
+        try:
+            memory_context = MemoryRetrievalRouter().retrieve(
+                actor.doctor_id, actor.thread_id, "生成报告"
+            )
+        except (AccessDeniedError, EntityNotFoundError) as exc:
+            raise ContextBudgetExceeded("scope_denied") from exc
+        for item in memory_context.budget_items("生成报告"):
+            if any(
+                title in item.reference
+                for title in (
+                    "MEMORY CLAIM CONFLICTS",
+                    "DOCTOR PREFERENCES",
+                    "PATIENT BACKGROUND",
+                    "LONG TERM SUMMARY",
+                )
+            ):
+                items.append(item)
+        parts["system_prompt"] += "\n" + memory_context.instruction_prompt("生成报告")
+        available = (
+            policy.input_token_limit
+            - estimate_messages(diagnosis_prompt.invoke(parts).to_messages())
+            - 512
+        )
+    selected = select_context(
+        items, available=max(0, available), task="report", policy=policy
+    )
+    if not any(item.category == "rag" for item in selected.selected_items):
+        parts["system_prompt"] += (
+            "\n本次无入选的知识库原文，不能生成知识引用编号或RAG引用。"
+            "业务事实和医生记忆不是指南或循证知识。"
+        )
+    parts["knowledge_context"] = selected.text or "暂无入选知识库资料；不能编造引用。"
+    prompt = diagnosis_prompt.invoke(parts)
+    with ExitStack() as stack:
+        check = None
+        if memory_context is not None:
+            from martin.memory.lifecycle import write_lock
+            from martin.services.report_input_service import ReportInputService
+
+            stack.enter_context(write_lock)
+
+            def check():
+                validate_context_sources(
+                    memory_context, selected.selected_items, "生成报告"
+                )
+                if result.get("source") == "business_findings":
+                    current = ReportInputService(memory_context._service.db_path).build(
+                        actor.doctor_id, actor.thread_id
+                    )
+                    if current != result:
+                        raise ContextBudgetExceeded("business_source_changed")
+
+        check_token = begin_dispatch_check(check) if check is not None else None
+        try:
+            verify_dispatch_sources()
+            return invoke_guarded(model, prompt.to_messages(), input_value=prompt)
+        finally:
+            if check_token is not None:
+                finish_dispatch_check(check_token)
+
+
 def create_diagnosis_chain():
     """创建 LCEL 诊断报告生成链。
 
@@ -726,8 +879,7 @@ def create_diagnosis_chain():
                 else "检测结果"
             ),
         )
-        | diagnosis_prompt
-        | model
+        | RunnableLambda(lambda parts: _invoke_report_with_budget(parts, model))
         | StrOutputParser()
     )
     return chain
@@ -761,9 +913,7 @@ def generate_report(
     Returns:
         生成的病例报告字符串。
     """
-    logger.info(
-        "开始生成病例报告，类型: %s，语言: %s", report_type, language
-    )
+    logger.info("开始生成病例报告，类型: %s，语言: %s", report_type, language)
 
     report_type = report_type.lower()
     if report_type not in _REPORT_TYPE_MAP:
@@ -786,8 +936,12 @@ def generate_report(
         report = chain.invoke(chain_input)
         logger.info("LCEL 链执行成功，报告生成完成")
         return report
+    except ContextBudgetExceeded as e:
+        # A normal fallback can look like a complete report. Budget failures
+        # must state the processed/omitted scope and cannot masquerade as one.
+        return str(e)
     except Exception as e:
-        logger.warning("LCEL 链执行失败: %s，降级到模板生成", e)
+        logger.warning("LCEL 链执行失败: %s，降级到模板生成", type(e).__name__)
 
     # 第二级：模板降级
     try:
@@ -795,7 +949,7 @@ def generate_report(
         logger.info("模板降级报告生成完成")
         return report
     except Exception as e:
-        logger.error("模板降级报告生成失败: %s", e)
+        logger.error("模板降级报告生成失败: %s", type(e).__name__)
 
     # 第三级：基本错误信息
     logger.error("所有报告生成方式均失败，返回基本错误信息")

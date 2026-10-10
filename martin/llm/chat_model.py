@@ -10,11 +10,80 @@
     response = model.invoke("你好")
 """
 
+import time
 from typing import Optional
 
 from langchain_openai import ChatOpenAI
+from pydantic import field_validator
 
 from martin.config import config
+from martin.llm.context_budget import (
+    ContextBudgetExceeded,
+    current_budget_scope,
+    guard_payload,
+    record_actual_usage,
+)
+
+
+class BudgetedChatOpenAI(ChatOpenAI):
+    """Enforce the budget after LangChain has serialized messages and tools.
+
+    The same payload hook is used by invoke, ainvoke and streaming. Checking at
+    this boundary also covers report chains, editing and future summary calls.
+    """
+
+    max_retries: int = 0
+
+    @field_validator("max_retries", mode="before")
+    @classmethod
+    def _disable_unguarded_retries(cls, value):
+        return 0
+
+    def _get_request_payload(self, input_, *, stop=None, **kwargs):
+        scope = current_budget_scope()
+        if scope is not None:
+            remaining = scope.policy.max_stage_seconds - (
+                time.monotonic() - scope.started_at
+            )
+            if remaining <= 0:
+                raise ContextBudgetExceeded("request_time_exceeded")
+            configured = kwargs.get("timeout", self.request_timeout)
+            kwargs["timeout"] = min(
+                remaining, configured if isinstance(configured, (int, float)) else 60
+            )
+        payload = super()._get_request_payload(input_, stop=stop, **kwargs)
+        if scope is not None:
+            for field in ("max_tokens", "max_completion_tokens", "max_output_tokens"):
+                if isinstance(payload.get(field), int):
+                    payload[field] = min(payload[field], scope.policy.reserved_output)
+        guard_payload(
+            payload,
+            verify_model=True,
+            base_url=self.openai_api_base,
+            api_key=(
+                self.openai_api_key.get_secret_value() if self.openai_api_key else None
+            ),
+        )
+        if scope is not None:
+            # Tokenizer latency consumes the same deadline as model generation.
+            remaining = scope.policy.max_stage_seconds - (
+                time.monotonic() - scope.started_at
+            )
+            if remaining <= 0:
+                raise ContextBudgetExceeded("request_time_exceeded")
+            payload["timeout"] = min(payload["timeout"], remaining)
+        return payload
+
+    def _create_chat_result(self, response, generation_info=None):
+        result = super()._create_chat_result(response, generation_info)
+        usage = (
+            response.get("usage")
+            if isinstance(response, dict)
+            else getattr(response, "usage", None)
+        )
+        record_actual_usage(usage)
+        return result
+
 
 # 模块级缓存，避免重复创建 ChatOpenAI 实例
 _chat_model: Optional[ChatOpenAI] = None
@@ -50,9 +119,7 @@ def get_chat_model(**kwargs) -> ChatOpenAI:
 
     api_key = config.deepseek_api_key
     if not api_key:
-        raise ValueError(
-            "DEEPSEEK_API_KEY 环境变量未设置，请先设置后再调用。"
-        )
+        raise ValueError("DEEPSEEK_API_KEY 环境变量未设置，请先设置后再调用。")
 
     # 默认参数，允许通过 kwargs 覆盖
     default_params = {
@@ -62,11 +129,14 @@ def get_chat_model(**kwargs) -> ChatOpenAI:
         "temperature": 0.1,
         "max_tokens": 4096,
         "timeout": 60,
+        "max_retries": 0,
     }
     # 用传入的参数覆盖默认值
     default_params.update(kwargs)
+    # SDK retries bypass our payload hook and cannot reuse revoked sources.
+    default_params["max_retries"] = 0
 
-    _chat_model = ChatOpenAI(**default_params)
+    _chat_model = BudgetedChatOpenAI(**default_params)
     return _chat_model
 
 
@@ -84,11 +154,12 @@ def validate_api_key() -> bool:
 
     try:
         # 创建临时实例进行验证，不干扰缓存
-        temp_model = ChatOpenAI(
+        temp_model = BudgetedChatOpenAI(
             model=config.deepseek_model,
             api_key=api_key,
             base_url=config.deepseek_base_url,
             timeout=10,
+            max_retries=0,
         )
         # 发起一次轻量请求验证密钥
         temp_model.invoke("ping")

@@ -3,7 +3,7 @@
 from typing import Literal
 from uuid import uuid4
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
 from pydantic import BaseModel, ConfigDict, Field
 
 from api.deps.auth import get_current_doctor
@@ -139,6 +139,7 @@ def list_memory_records(
 @router.post("/threads/{thread_id}/records")
 def write_memory_records(
     thread_id: str, request: MemoryWriteRequest,
+    background_tasks: BackgroundTasks,
     doctor: DoctorIdentity = Depends(get_current_doctor),
 ):
     service = MemoryService()
@@ -154,11 +155,17 @@ def write_memory_records(
             source_id=thread_id,
             provenance=_submission_provenance(doctor, thread_id),
         )
+        if result.governance_job and result.governance_job.get("queued"):
+            from martin.memory.governance_jobs import process_pending
+
+            background_tasks.add_task(process_pending, doctor.id, thread_id)
         return {
             "status": "saved", "records": result.records,
             "deduplicated": result.deduplicated,
             "index_available": result.index_available,
             "error_code": result.error_code,
+            "decisions": result.decisions,
+            "governance_job": result.governance_job,
         }
     except (AccessDeniedError, EntityNotFoundError) as exc:
         raise HTTPException(status_code=403, detail="无权写入该会话记忆") from exc
@@ -195,6 +202,7 @@ def retract_memory_record(
     thread_id: str,
     memory_id: str,
     request: MemoryRetractionRequest,
+    background_tasks: BackgroundTasks,
     doctor: DoctorIdentity = Depends(get_current_doctor),
 ):
     service = MemoryService()
@@ -208,6 +216,9 @@ def retract_memory_record(
             reason=request.reason,
             provenance=_submission_provenance(doctor, thread_id),
         )
+        from martin.memory.governance_jobs import process_pending
+
+        background_tasks.add_task(process_pending, doctor.id, thread_id)
         return {"status": "retracted", "record": record}
     except HTTPException:
         raise

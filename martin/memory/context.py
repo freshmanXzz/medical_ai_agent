@@ -46,6 +46,37 @@ class MemorySnapshot:
     warning: str | None = None
     patient_facts: dict = field(default_factory=dict)
     typed_records: list[dict] = field(default_factory=list)
+    case_memory_governance: list[dict] = field(default_factory=list)
+
+    def budget_items(self, task: str = "") -> list:
+        """Expose complete source records; protection is decided before allocation."""
+        from martin.llm.context_budget import BudgetItem, task_kind
+
+        kind = task_kind(task)
+        sections = [
+            ("CURRENT CASE FACTS", self.current_findings, True),
+            ("DOCTOR PREFERENCES", self.doctor_preferences, kind == "report"),
+            ("DOCTOR PRIVATE PATIENT NOTES", self.private_notes, False),
+            ("PATIENT HISTORICAL MEMORY", self.historical_observations, kind == "followup"),
+            ("CASE MEMORY", self.case_memories, False),
+            ("BUSINESS PATIENT FACTS", self.patient_facts, kind in {"report", "followup"}),
+            ("EXACT TYPED MEMORY", self.typed_records, False),
+        ]
+        items = []
+        for title, values, protected in sections:
+            entries = values if isinstance(values, list) else [values]
+            for index, value in enumerate(entries):
+                if not value:
+                    continue
+                reference = (value.get("finding_id") or value.get("memory_id")
+                             or value.get("case_id") or str(index)) if isinstance(value, dict) else str(index)
+                sources = tuple(str(value[key]) for key in ("finding_id", "source_id", "memory_id")
+                                if isinstance(value, dict) and value.get(key))
+                items.append(BudgetItem(
+                    f"{title}:{reference}", "memory", value, protected, sources,
+                    str(value.get("observed_at", "")) if isinstance(value, dict) else "",
+                ))
+        return items
 
     def to_prompt(self, task: str = "") -> str:
         """Keep current facts and historical memory in visibly separate sections."""

@@ -1,6 +1,8 @@
 # Martin 长期记忆 V2 实施计划：可信治理
 
-状态：V2.1 已实现并完成本计划限定范围的验收（2026-10-09）；V2.2 / V2.3 尚未实施。基线：2026-10-08 本地 `main`，提交 `b8fd8b3`。
+状态：V2.1 已完成限定范围验收（2026-10-09）；V2.2 已完成合成数据、单 worker 范围实施与验收（2026-10-10）；V2.3 尚未实施。初始基线：2026-10-08 本地 `main`，提交 `b8fd8b3`。
+
+原始设计输入已归档为 [V2 可信治理方案](MARTIN_LONG_TERM_MEMORY_V2_TRUSTED_GOVERNANCE.md)。V2.2 的八项已确认决策见 [执行方案](MARTIN_MEMORY_V22_EXECUTION_PLAN.md)，实际结果和限制见 [验收报告](../refactor/MARTIN_MEMORY_V22_ACCEPTANCE.md)。换电脑接续见 [开发交接说明](MARTIN_MEMORY_V2_DEVELOPMENT_HANDOFF.md)。
 
 执行结果：Batch 0–3 已完成；最终相关回归 **340 passed / 0 failed**，前端生产构建通过，八类真实模型场景的 37 项结构化检查及公开回答语义复核通过。实现、命令、证据和剩余限制见 [V2.1 验收报告](../refactor/MARTIN_MEMORY_V21_ACCEPTANCE.md)。本次不包含真实 CT、临床知识语料验收或多进程并发保证。
 

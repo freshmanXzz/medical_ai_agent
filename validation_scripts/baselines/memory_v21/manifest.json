@@ -1,0 +1,13 @@
+{
+  "stage": "V2.1 Trusted Memory Governance",
+  "captured_at": "2026-10-09",
+  "branch": "codex/memory-v21-governance",
+  "head": "b8fd8b385f3de6d467c7fe7b364b12f800ba1c6c",
+  "head_role": "Working tree base only; validated V2.1 Router was uncommitted and is identified by its original SHA256.",
+  "source": "Original pre-V2.2 worktree Router, extracted without modification from the recorded source snapshot.",
+  "scope": "Synthetic Prompt projection baseline only; not a complete V2.1 Agent replay.",
+  "files": {
+    "martin/memory/router.py": "02578724d02f674efdc35435b373aba454f53e882bbb4edececf55033ee70b4d"
+  },
+  "fixture_file": "router.py"
+}

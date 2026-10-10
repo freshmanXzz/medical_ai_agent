@@ -7,7 +7,7 @@ import asyncio
 import json
 import logging
 
-from fastapi import APIRouter, Depends, HTTPException, WebSocket, WebSocketDisconnect
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, WebSocket, WebSocketDisconnect
 from langchain_core.agents import AgentAction
 
 from api.deps.auth import COOKIE_NAME, get_current_doctor, require_thread_access
@@ -21,6 +21,7 @@ from api.models import (
 from martin.agent.errors import CasePersistenceError
 from martin.auth.session_service import DoctorIdentity, SessionService
 from martin.memory.output_preferences import PreferenceValidationError
+from api.routers.budget import record_budget_trace
 from martin.memory.router import MemoryRetrievalRouter
 from martin.memory.service import MemoryService
 from martin.services.access_service import AccessDeniedError, EntityNotFoundError
@@ -80,7 +81,7 @@ def _process_attachment(agent, attachment: AttachmentInfo) -> str:
 
 
 @router.post("/agent/chat", response_model=ChatResponse)
-def agent_chat(request: ChatRequest, doctor: DoctorIdentity = Depends(get_current_doctor)):
+def agent_chat(request: ChatRequest, background_tasks: BackgroundTasks, doctor: DoctorIdentity = Depends(get_current_doctor)):
     """Agent 对话接口，调用现有 AgentExecutor 进行推理。"""
     require_thread_access(doctor, request.session_id, write=True)
     try:
@@ -105,6 +106,7 @@ def agent_chat(request: ChatRequest, doctor: DoctorIdentity = Depends(get_curren
             doctor_id=doctor.id,
         )
         agent.memory_prompt = memory_context.to_prompt(request.user_message)
+        agent.memory_context = memory_context
         agent.report_preferences = memory_snapshot.doctor_preferences.get(
             "report_style", {}
         )
@@ -154,6 +156,7 @@ def agent_chat(request: ChatRequest, doctor: DoctorIdentity = Depends(get_curren
     except Exception as e:
         audit_logger.log_agent_error(type(e).__name__)
         raise HTTPException(status_code=502, detail="Agent 执行失败，请稍后重试。") from e
+    record_budget_trace(doctor.id, request.session_id, result.get("budget_trace"))
     failure_detail = _agent_failure_detail(result)
     if failure_detail:
         raise HTTPException(status_code=502, detail=failure_detail)
@@ -183,6 +186,10 @@ def agent_chat(request: ChatRequest, doctor: DoctorIdentity = Depends(get_curren
 
     # 获取当前病例上下文
     case_context = _public_case_context(agent.case_context)
+
+    from martin.memory.governance_jobs import process_pending
+
+    background_tasks.add_task(process_pending, doctor.id, request.session_id)
 
     return ChatResponse(
         output=result.get("output", ""),
@@ -260,6 +267,7 @@ async def agent_websocket(websocket: WebSocket, session_id: str):
                     doctor_id=doctor.id,
                 )
                 agent.memory_prompt = memory_context.to_prompt(user_input)
+                agent.memory_context = memory_context
                 agent.report_preferences = memory_snapshot.doctor_preferences.get(
                     "report_style", {}
                 )
@@ -286,6 +294,9 @@ async def agent_websocket(websocket: WebSocket, session_id: str):
 
                 result = await asyncio.to_thread(
                     agent.invoke, {"input": final_input, "human_input": user_input},
+                )
+                await asyncio.to_thread(
+                    record_budget_trace, doctor.id, session_id, result.get("budget_trace")
                 )
 
                 failure_detail = _agent_failure_detail(result)
@@ -342,6 +353,9 @@ async def agent_websocket(websocket: WebSocket, session_id: str):
                     type="final",
                     content=final_output,
                 ).model_dump())
+                from martin.memory.governance_jobs import process_pending
+
+                await asyncio.to_thread(process_pending, doctor.id, session_id)
 
             except PreferenceValidationError as e:
                 await websocket.send_json(WsStatusMessage(

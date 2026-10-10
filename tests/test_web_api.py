@@ -86,7 +86,15 @@ def test_knowledge_search_reports_unavailable_vector_store(monkeypatch):
     assert "尚未初始化" in response.json()["detail"]
 
 
-def test_analyze_rejects_a_session_without_a_server_side_image_source(entity_db):
+def test_analyze_rejects_a_session_without_a_server_side_image_source(
+    entity_db, monkeypatch
+):
+    import api.routers.image as image_router
+
+    def unexpected_agent(_session_id):
+        pytest.fail("A session without an image must not create a model")
+
+    monkeypatch.setattr(image_router, "_create_session_agent", unexpected_agent)
     with TestClient(app) as client:
         thread_id = _authenticated_thread(client)
         response = client.post(
@@ -94,6 +102,36 @@ def test_analyze_rejects_a_session_without_a_server_side_image_source(entity_db)
             json={"session_id": thread_id},
         )
 
+    assert response.status_code == 409
+    assert "请先上传" in response.json()["detail"]
+
+
+@pytest.mark.parametrize(
+    "image_info",
+    [
+        {"source_type": "local", "object_name": "ct/synthetic.nii.gz"},
+        {"source_type": "minio_object", "object_name": "../../synthetic.nii.gz"},
+        {"source_type": "minio_object", "object_name": "ct/a/synthetic.nii.gz"},
+    ],
+)
+def test_analyze_rejects_unsafe_checkpoint_source_before_model_creation(
+    entity_client, monkeypatch, image_info
+):
+    import api.routers.image as image_router
+    from martin.agent.sessions import SessionManager
+
+    monkeypatch.setattr(
+        SessionManager,
+        "get_case_context",
+        lambda self, thread_id: {"image_info": image_info},
+    )
+    monkeypatch.setattr(
+        image_router,
+        "_create_session_agent",
+        lambda _: pytest.fail("An unsafe checkpoint source must not create a model"),
+    )
+    thread_id = _authenticated_thread(entity_client)
+    response = entity_client.post("/api/image/analyze", json={"session_id": thread_id})
     assert response.status_code == 409
     assert "请先上传" in response.json()["detail"]
 
@@ -120,6 +158,10 @@ def test_upload_and_analyze_keep_object_reference_server_side(
 
     stub_agent = _StubAgent(case_context)
     monkeypatch.setattr(image_router, "_create_session_agent", lambda _: stub_agent)
+    monkeypatch.setattr(
+        "martin.agent.sessions.SessionManager.get_case_context",
+        lambda self, thread_id: stub_agent.case_context.to_dict(),
+    )
 
     class FakeOss:
         def upload_file(self, path):

@@ -18,6 +18,9 @@
             <el-button type="primary" :disabled="!preferenceLoaded" :loading="busy" @click="savePreference">保存长期偏好</el-button>
           </el-form>
         </el-collapse-item>
+        <el-collapse-item title="上下文预算与使用记录" name="budget">
+          <BudgetPolicyPanel :active="visible" :thread-id="threadId" />
+        </el-collapse-item>
       </el-collapse>
 
       <div class="list-toolbar">
@@ -92,6 +95,7 @@
 
 <script setup lang="ts">
 import { computed, onBeforeUnmount, reactive, ref, watch } from 'vue'
+import BudgetPolicyPanel from './BudgetPolicyPanel.vue'
 import {
   getMemoryHistory, getReportStylePreference, listMemoryRecords, retractMemoryRecord,
   reviseMemoryRecord, saveReportStylePreference, writeMemoryRecord,

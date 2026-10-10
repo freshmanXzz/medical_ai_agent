@@ -95,9 +95,10 @@ def test_private_and_case_memory_check_business_access(entity_db, tmp_path):
         assert service.get_private_patient_notes("D001", "P001")["next_visit"] == {
             "focus": "spiculation"
         }
-        assert service.get_case_memories("D001", "C001")["follow_up"] == {
-            "months": 3
-        }
+        saved_case_memory = service.get_case_memories("D001", "C001")["follow_up"]
+        assert saved_case_memory["months"] == 3
+        assert saved_case_memory["doctor_id"] == "D001"
+        assert saved_case_memory["provenance"]["kind"] == "api_submission"
         with pytest.raises(AccessDeniedError):
             service.get_private_patient_notes("D002", "P001")
         with pytest.raises(AccessDeniedError):

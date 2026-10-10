@@ -99,35 +99,38 @@ class TestAppLogger:
 class TestAuditLogger:
     """测试 AuditLogger 类的审计日志功能"""
 
-    def test_log_tool_call_with_user_input_and_final_output(self):
-        """测试 log_tool_call 同时传入 user_input 和 final_output 时写入完整审计记录。"""
+    def test_log_tool_call_redacts_user_input_and_final_output(self):
+        """自由文本只用于调用，不写入持久化审计记录。"""
         with tempfile.TemporaryDirectory() as tmp_dir:
             audit_logger = AuditLogger(
                 session_id="test_audit_full",
                 audit_dir=tmp_dir,
             )
+            private_text = "synthetic-private-audit-canary"
+            args = {"query": private_text, "reasoning": private_text}
             audit_logger.log_tool_call(
                 tool_name="retrieve_knowledge",
-                args={
-                    "query": "8mm结节",
-                    "reasoning": "用户问 8mm 结节怎么办",
-                },
-                output_summary="Lung-RADS...",
-                user_input="8mm结节怎么办",
-                final_output="根据 Lung-RADS...",
+                args=args,
+                output_summary=private_text,
+                user_input=private_text,
+                final_output=private_text,
             )
 
             with open(audit_logger.log_file, "r", encoding="utf-8") as f:
-                record = json.loads(f.readline())
+                persisted = f.read()
+                record = json.loads(persisted)
 
-            assert record["user_input"] == "8mm结节怎么办"
-            assert record["final_output"] == "根据 Lung-RADS..."
-            assert record["reasoning"] == "用户问 8mm 结节怎么办"
+            assert record["user_input"] == ""
+            assert record["final_output"] == ""
+            assert record["reasoning"] == ""
             assert record["tool_name"] == "retrieve_knowledge"
-            assert "reasoning" not in record["full_args"]
+            assert record["full_args"] == {}
+            assert record["output_summary"] == "tool_completed"
+            assert private_text not in persisted
+            assert args == {"query": private_text, "reasoning": private_text}
 
     def test_log_tool_call_backward_compatible(self):
-        """测试 log_tool_call 不传 user_input/final_output 时使用默认空字符串。"""
+        """旧调用接口保留默认值，错误详情同样只持久化公共失败状态。"""
         with tempfile.TemporaryDirectory() as tmp_dir:
             audit_logger = AuditLogger(
                 session_id="test_audit_compat",
@@ -135,17 +138,22 @@ class TestAuditLogger:
             )
             audit_logger.log_tool_call(
                 tool_name="analyze_image",
-                args={"image_path": "x.nii.gz"},
-                output_summary="检测到1个结节",
+                args={"image_path": "synthetic-private-image-canary"},
+                output_summary="错误: synthetic-private-error-canary",
             )
 
             with open(audit_logger.log_file, "r", encoding="utf-8") as f:
-                record = json.loads(f.readline())
+                persisted = f.read()
+                record = json.loads(persisted)
 
             assert record["user_input"] == ""
             assert record["final_output"] == ""
             assert record["tool_name"] == "analyze_image"
-            assert record["full_args"] == {"image_path": "x.nii.gz"}
+            assert record["reasoning"] == ""
+            assert record["full_args"] == {}
+            assert record["output_summary"] == "tool_failed"
+            assert "synthetic-private-image-canary" not in persisted
+            assert "synthetic-private-error-canary" not in persisted
 
 
 if __name__ == "__main__":

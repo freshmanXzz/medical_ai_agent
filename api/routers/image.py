@@ -44,6 +44,21 @@ def _is_safe_ct_object_name(value: object) -> bool:
     )
 
 
+def _require_session_ct_source(image_info: object) -> str:
+    """校验 checkpoint 中的受控影像引用，无效时不创建模型。"""
+    object_name = image_info.get("object_name") if isinstance(image_info, dict) else None
+    if (
+        not isinstance(image_info, dict)
+        or image_info.get("source_type") != "minio_object"
+        or not _is_safe_ct_object_name(object_name)
+    ):
+        raise HTTPException(
+            status_code=409,
+            detail="当前会话没有可分析的影像，请先上传 NIfTI 文件。",
+        )
+    return object_name
+
+
 def _create_session_agent(session_id: str):
     """用同一会话的 checkpoint 保存和读取服务端影像来源。"""
     from martin.agent.agent import create_agent
@@ -121,14 +136,16 @@ def analyze_ct_image(
 ):
     """仅分析该会话已保存的受控 MinIO 影像。"""
     require_thread_access(doctor, request.session_id, write=True)
+    from martin.agent.sessions import SessionManager, get_default_checkpointer
     from martin.agent.tools import analyze_image, reset_case_context, set_case_context
 
+    saved_context = SessionManager(get_default_checkpointer()).get_case_context(
+        request.session_id
+    )
+    _require_session_ct_source(saved_context.get("image_info"))
     agent = _create_session_agent(request.session_id)
     case_context = agent.case_context
-    image_info = case_context.image_info
-    object_name = image_info.get("object_name")
-    if image_info.get("source_type") != "minio_object" or not _is_safe_ct_object_name(object_name):
-        raise HTTPException(status_code=409, detail="当前会话没有可分析的影像，请先上传 NIfTI 文件。")
+    object_name = _require_session_ct_source(case_context.image_info)
 
     try:
         from martin.utils.oss_client import get_oss_client

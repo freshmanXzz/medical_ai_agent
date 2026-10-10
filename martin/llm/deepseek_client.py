@@ -2,10 +2,22 @@
 DeepSeekClient - DeepSeek LLM 客户端
 提供与DeepSeek API的接口
 """
-import os
+
 import json
+import os
+import time
+from typing import Dict, List, Optional
+
 import requests
-from typing import List, Dict, Optional
+
+from martin.llm.context_budget import (
+    ContextBudgetExceeded,
+    begin_budget_scope,
+    current_budget_scope,
+    finish_budget_scope,
+    guard_payload,
+    record_actual_usage,
+)
 
 # 导入统一日志工具
 from martin.utils import AppLogger
@@ -13,75 +25,92 @@ from martin.utils import AppLogger
 # 获取日志实例
 logger = AppLogger.setup_logging(__name__)
 
+
 class DeepSeekClient:
     """
     DeepSeek LLM 客户端
-    
+
     Args:
         api_key: DeepSeek API密钥
         base_url: API基础URL
         model: 模型名称
     """
-    
-    def __init__(
-        self,
-        api_key: str = None,
-        base_url: str = None,
-        model: str = None
-    ):
+
+    def __init__(self, api_key: str = None, base_url: str = None, model: str = None):
         self.api_key = api_key or os.environ.get("DEEPSEEK_API_KEY")
         self.base_url = base_url or os.environ.get(
             "DEEPSEEK_BASE_URL", "https://api.deepseek.com/v1"
         )
         self.model = model or os.environ.get("DEEPSEEK_MODEL", "deepseek-chat")
-        
+
         if not self.api_key:
-            raise ValueError("API密钥未设置，请设置DEEPSEEK_API_KEY环境变量或传入api_key参数")
-    
+            raise ValueError(
+                "API密钥未设置，请设置DEEPSEEK_API_KEY环境变量或传入api_key参数"
+            )
+
     def chat(
         self,
         messages: List[Dict[str, str]],
         temperature: float = 0.7,
-        max_tokens: int = 1024
+        max_tokens: int = 1024,
     ) -> str:
         """
         与DeepSeek模型对话
-        
+
         Args:
             messages: 消息列表，格式: [{"role": "user", "content": "..."}]
             temperature: 温度参数
             max_tokens: 最大生成token数
-        
+
         Returns:
             模型回复内容
         """
         url = f"{self.base_url}/chat/completions"
-        
+
         headers = {
             "Authorization": f"Bearer {self.api_key}",
-            "Content-Type": "application/json"
+            "Content-Type": "application/json",
         }
-        
+
         data = {
             "model": self.model,
             "messages": messages,
             "temperature": temperature,
-            "max_tokens": max_tokens
+            "max_tokens": max_tokens,
         }
-        
-        response = requests.post(url, headers=headers, json=data)
-        response.raise_for_status()
-        
-        result = response.json()
-        return result["choices"][0]["message"]["content"]
-    
+
+        token = (
+            begin_budget_scope("default") if current_budget_scope() is None else None
+        )
+        try:
+            scope = current_budget_scope()
+            data["max_tokens"] = min(max_tokens, scope.policy.reserved_output)
+            guard_payload(
+                data, verify_model=True, base_url=self.base_url, api_key=self.api_key
+            )
+            remaining = scope.policy.max_stage_seconds - (
+                time.monotonic() - scope.started_at
+            )
+            if remaining <= 0:
+                raise ContextBudgetExceeded("request_time_exceeded")
+            response = requests.post(
+                url, headers=headers, json=data, timeout=min(60, remaining)
+            )
+            response.raise_for_status()
+            result = response.json()
+            record_actual_usage(result.get("usage"))
+            return result["choices"][0]["message"]["content"]
+        finally:
+            if token is not None:
+                finish_budget_scope(token)
+
     def analyze_report(self, report_data: Dict) -> str:
         """
         分析医学报告数据
-        
+
         Args:
             report_data: 报告数据字典
-        
+
         Returns:
             分析结果
         """
@@ -100,21 +129,24 @@ class DeepSeekClient:
 3. Lung-RADS分类建议
 4. 患者注意事项
 """
-        
+
         messages = [
-            {"role": "system", "content": "你是一位专业的放射科医生，请用专业但易懂的语言分析医学报告。"},
-            {"role": "user", "content": prompt}
+            {
+                "role": "system",
+                "content": "你是一位专业的放射科医生，请用专业但易懂的语言分析医学报告。",
+            },
+            {"role": "user", "content": prompt},
         ]
-        
+
         return self.chat(messages)
-    
+
     def generate_report(self, nodules: List[Dict]) -> str:
         """
         生成医学报告
-        
+
         Args:
             nodules: 结节检测结果列表
-        
+
         Returns:
             格式化的医学报告
         """
@@ -130,21 +162,24 @@ class DeepSeekClient:
 3. 使用专业医学术语
 4. 对每个结节进行评估
 """
-        
+
         messages = [
-            {"role": "system", "content": "你是一位专业的医学报告撰写专家，请生成格式规范的医学报告。"},
-            {"role": "user", "content": prompt}
+            {
+                "role": "system",
+                "content": "你是一位专业的医学报告撰写专家，请生成格式规范的医学报告。",
+            },
+            {"role": "user", "content": prompt},
         ]
-        
+
         return self.chat(messages)
-    
+
     def summarize_findings(self, findings: List[Dict]) -> str:
         """
         总结检测发现
-        
+
         Args:
             findings: 检测发现列表
-        
+
         Returns:
             总结内容
         """
@@ -156,10 +191,10 @@ class DeepSeekClient:
 
 请用简洁明了的语言总结关键发现。
 """
-        
+
         messages = [
             {"role": "system", "content": "请用简洁的语言总结医学检测结果。"},
-            {"role": "user", "content": prompt}
+            {"role": "user", "content": prompt},
         ]
-        
+
         return self.chat(messages)

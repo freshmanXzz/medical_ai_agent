@@ -7,9 +7,45 @@ from langchain_core.messages import AIMessage
 from langchain_core.runnables import RunnableLambda
 
 from martin.llm import chain
-
+from martin.llm.context_budget import begin_budget_scope, finish_budget_scope
+from martin.memory.budget_policy import BudgetPolicy
 
 REPORT_TYPES = ("brief", "detailed", "research")
+
+
+@pytest.mark.parametrize("report_type", REPORT_TYPES)
+@pytest.mark.parametrize("with_knowledge", [False, True])
+def test_report_rag_placeholder_has_no_source_identity(
+    monkeypatch, report_type, with_knowledge
+):
+    prompts = _capture_prompt(monkeypatch)
+    knowledge = (
+        "【参考资料1】合成知识原文，来源 synthetic-guideline。"
+        if with_knowledge
+        else "暂无相关知识库资料。"
+    )
+    monkeypatch.setattr(chain, "_build_knowledge_context", lambda *_: knowledge)
+    token = begin_budget_scope("report", policy=BudgetPolicy())
+    try:
+        assert chain.generate_report(_finding_result(), report_type) == "合成病例报告"
+    finally:
+        trace = finish_budget_scope(token)
+    selected_rag = [
+        item
+        for item in trace["items"]
+        if item["stage"] == "allocation"
+        and item["category"] == "rag"
+        and item["selected"]
+    ]
+    system, human = prompts[0]
+    if with_knowledge:
+        assert selected_rag
+        assert "synthetic-guideline" in human.content
+    else:
+        assert not selected_rag
+        assert "REPORT RAG:" not in human.content
+        assert "不能生成知识引用编号或RAG引用" in system.content
+        assert "暂无入选知识库资料" in human.content
 
 
 def _finding_result():
